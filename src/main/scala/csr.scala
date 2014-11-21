@@ -12,11 +12,11 @@ class Status extends Bundle {
   val ip = Bits(width = 8)       // interrupt sources 
   val im = Bits(width = 8)       // interrupt mask
   val zero = Bits(width = 7)
-  val er = Bool()
+  val er = Bool()                // RoCC is enabled
   val vm = Bool()                // ?? related to virtual memory 
   val s64 = Bool()
   val u64 = Bool()
-  val ef = Bool()                // ?? FPU is enabled 
+  val ef = Bool()                // FPU is enabled 
   val pei = Bool()               // ?? previous ei when embedded interrupt 
   val ei = Bool()                // global interrupt enable 
   val ps = Bool()                // ?? previous s when embedded interrupt

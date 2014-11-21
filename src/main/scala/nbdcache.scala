@@ -87,13 +87,13 @@ class HellaCacheResp extends CoreBundle
 }
 
 class AlignmentExceptions extends Bundle {
-  val ld = Bool()
-  val st = Bool()
+  val ld = Bool() // load
+  val st = Bool() // store
 }
 
 class HellaCacheExceptions extends Bundle {
-  val ma = new AlignmentExceptions
-  val pf = new AlignmentExceptions
+  val ma = new AlignmentExceptions // misaligned exception
+  val pf = new AlignmentExceptions // page fault exception
 }
 
 // interface between D$ and processor/DTLB

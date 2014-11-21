@@ -13,7 +13,7 @@ class CtrlDpathIO extends Bundle
   // outputs to datapath
   val sel_pc   = UInt(OUTPUT, 3)               // ?? select PC in the request to iMem 
   val killd    = Bool(OUTPUT)                  // kill an instruction, start from EX
-  val ren      = Vec.fill(2)(Bool(OUTPUT))     // ?? allow read from RF
+  val ren      = Vec.fill(2)(Bool(OUTPUT))     // enable read the RF for rs1/2
   val sel_alu2 = UInt(OUTPUT, 3)               // choose op2 in EX
   val sel_alu1 = UInt(OUTPUT, 2)               // choose op1 in EX
   val sel_imm  = UInt(OUTPUT, 3)               // choose imm in EX
@@ -21,45 +21,45 @@ class CtrlDpathIO extends Bundle
   val fn_alu   = UInt(OUTPUT, SZ_ALU_FN)       // function for ALU or DIV in EX
   val div_mul_val = Bool(OUTPUT)               // data for DIV valid in EX
   val div_mul_kill = Bool(OUTPUT)              // kill DIV in EX
-  val div_val  = Bool(OUTPUT)                  // ???
-  val div_kill = Bool(OUTPUT)                  // ???
-  val csr      = UInt(OUTPUT, 3)               // CSR command, deciding CSR -> RF in WB Arb
-  val sret  = Bool(OUTPUT)                     // ??? -> PTW
-  val mem_load = Bool(OUTPUT)                  // ???
-  val wb_load = Bool(OUTPUT)                   // ???
-  val ex_fp_val= Bool(OUTPUT)                  // ??? -> dMem req.tag in EX/MEM
-  val mem_fp_val= Bool(OUTPUT)                 // choose FPU data in MEM and WB
-  val ex_wen = Bool(OUTPUT)                    // ???
-  val ex_valid = Bool(OUTPUT)                  // EX valid, considtion for no misprediction
-  val mem_jalr = Bool(OUTPUT)                  // used in cal branch target in WB arb
-  val mem_branch = Bool(OUTPUT)                // used in cal branch target in WB arb
-  val mem_wen  = Bool(OUTPUT)                  // enable WB
+  val div_val  = Bool(OUTPUT)                  // ???, not used
+  val div_kill = Bool(OUTPUT)                  // ???, not used
+  val csr      = UInt(OUTPUT, 3)               // CSR command, deciding CSR -> RF in WB
+  val sret  = Bool(OUTPUT)                     // SRET instruction in WB
+  val mem_load = Bool(OUTPUT)                  // enable memory read in MEM
+  val wb_load = Bool(OUTPUT)                   // enable memory write in WB
+  val ex_fp_val= Bool(OUTPUT)                  // enable FPU in EX in EX
+  val mem_fp_val= Bool(OUTPUT)                 // enable FPU in MEM in WB
+  val ex_wen = Bool(OUTPUT)                    // ?? enable write in EX (what for?)
+  val ex_valid = Bool(OUTPUT)                  // EX not killed, considtion for no misprediction
+  val mem_jalr = Bool(OUTPUT)                  // indicating JALR in WB
+  val mem_branch = Bool(OUTPUT)                // indicating branch instruction in WB
+  val mem_wen  = Bool(OUTPUT)                  // ?? enable write in WB (what for?)
   val wb_wen   = Bool(OUTPUT)                  // enable RF write in WB
-  val ex_mem_type = Bits(OUTPUT, 3)            // ???
-  val ex_rs2_val = Bool(OUTPUT)                // enable rs(1) to mem_rs(2) in MEM
-  val ex_rocc_val = Bool(OUTPUT)               // ???
-  val mem_rocc_val = Bool(OUTPUT)              // enable rocc_rs(2) -> wb_rs(2) in WB
-  val bypass = Vec.fill(2)(Bool(OUTPUT))       // enable bypass in DC
-  val bypass_src = Vec.fill(2)(Bits(OUTPUT, SZ_BYP)) // choose bypass src reg in DC
-  val ll_ready = Bool(OUTPUT)                  // allow DIV or RoCC return data in WB arb
+  val ex_mem_type = Bits(OUTPUT, 3)            // memory op type (X/W/B/BU/H/HU/D) in EX
+  val ex_rs2_val = Bool(OUTPUT)                // send rs1 to memory write or RoCC
+  val ex_rocc_val = Bool(OUTPUT)               // RoCC instruction in EX
+  val mem_rocc_val = Bool(OUTPUT)              // RoCC instruction in WB, send rs1 to RoCC
+  val bypass = Vec.fill(2)(Bool(OUTPUT))       // enable bypass for (rs1, rs2)
+  val bypass_src = Vec.fill(2)(Bits(OUTPUT, SZ_BYP)) // choose bypass source from (MEM, WB, WB with memory load)
+  val ll_ready = Bool(OUTPUT)                  // no write back from main pipe, therefore, allow DIV or RoCC return data in WB
   // exception handling
-  val retire = Bool(OUTPUT)                    // ??? debug report 
-  val exception = Bool(OUTPUT)                 // ???
-  val cause    = UInt(OUTPUT, params(XprLen))  // ???
-  val badvaddr_wen = Bool(OUTPUT)              // ???   (Orig) high for a load/store access fault
+  val retire = Bool(OUTPUT)                    // 2 cycles delayed ex_valid, debug report 
+  val exception = Bool(OUTPUT)                 // exception in WB (exception commit)
+  val cause    = UInt(OUTPUT, params(XprLen))  // cause of the exception
+  val badvaddr_wen = Bool(OUTPUT)              // the same with exception  (Orig) high for a load/store access fault
   // inputs from datapath
   val inst    = Bits(INPUT, 32)                // inst from iMem though DPath
-  val jalr_eq = Bool(INPUT)                    // ???
+  val jalr_eq = Bool(INPUT)                    // ???, not used
   val mem_br_taken = Bool(INPUT)               // ALU output when branch in WB arb
   val mem_misprediction  = Bool(INPUT)         // branch misprediction detected in WB arb
   val div_mul_rdy = Bool(INPUT)                // div ready for req
   val ll_wen = Bool(INPUT)                     // div.resp.fire() in WB arb
   val ll_waddr = UInt(INPUT, 5)                // div.resp.tag in WB arb
-  val ex_waddr = UInt(INPUT, 5)                // rd in EX
-  val mem_rs1_ra = Bool(INPUT)                 // ??? mem_rs(1) is x1 (return addr?)
-  val mem_waddr = UInt(INPUT, 5)               // rd in MEM 
-  val wb_waddr = UInt(INPUT, 5)                // rd in WB
-  val status = new Status().asInput            // ???
+  val ex_waddr = UInt(INPUT, 5)                // rd in EX,for bypass cal
+  val mem_rs1_ra = Bool(INPUT)                 // indicate a valid function call (x1 used as LR), used for BTB update
+  val mem_waddr = UInt(INPUT, 5)               // rd in MEM, for bypass cal
+  val wb_waddr = UInt(INPUT, 5)                // rd in WB, for bypass cal
+  val status = new Status().asInput            // send Status CSR to ctrl (interrupt, previlage mode, RoCC enable)
   
   // ??? scoreboard clear (for div/mul and D$ load miss writebacks)
   val fp_sboard_clr  = Bool(INPUT)             // ??? dmem_resp_replay && dmem_resp_fpu 
@@ -391,7 +391,7 @@ class Control extends Module
   val wb_reg_fp_val          = Reg(Bool())
   val wb_reg_div_mul_val     = Reg(Bool())
 
-  val take_pc_wb = Bool()
+  val take_pc_wb = Bool()              // wb need replay or exceptions
   val take_pc_mem = io.dpath.mem_misprediction && (mem_reg_branch || mem_reg_jalr || mem_reg_jal)
   val take_pc_mem_wb = take_pc_wb || take_pc_mem
   val take_pc = take_pc_mem_wb
@@ -424,7 +424,7 @@ class Control extends Module
   val isLegalCSR = Vec.tabulate(1 << id_csr_addr.getWidth)(i => Bool(legal_csrs contains i))
   val id_csr_en = id_csr != CSR.N
   val id_csr_fp = Bool(!params(BuildFPU).isEmpty) && id_csr_en && DecodeLogic(id_csr_addr, fp_csrs, CSRs.all.toSet -- fp_csrs) // valid csr_addr for fp CSRs
-  val id_csr_wen = id_raddr1 != UInt(0) || !Vec(CSR.S, CSR.C).contains(id_csr)
+  val id_csr_wen = id_raddr1 != UInt(0) || !Vec(CSR.S, CSR.C).contains(id_csr) // need to update CSR
   val id_csr_invalid = id_csr_en && !isLegalCSR(id_csr_addr)
   val id_csr_privileged = id_csr_en &&
     (id_csr_addr(11,10) === UInt(3) && id_csr_wen ||
@@ -439,8 +439,8 @@ class Control extends Module
   }
 
   // stall decode for fences (now, for AMO.aq; later, for AMO.rl and FENCE)
-  val id_amo_aq = io.dpath.inst(26)
-  val id_amo_rl = io.dpath.inst(25)
+  val id_amo_aq = io.dpath.inst(26) // automic instructions (acquire semantics) RISC-V VI p31
+  val id_amo_rl = io.dpath.inst(25) // automic instructions (release semantics) RISC-V VI p31
   val id_fence_next = id_fence || id_amo && id_amo_rl
   val id_mem_busy = !io.dmem.ordered || ex_reg_mem_val
   val id_rocc_busy = Bool(!params(BuildRoCC).isEmpty) &&
@@ -602,12 +602,13 @@ class Control extends Module
     wb_reg_rocc_val := mem_reg_rocc_val
   }
 
-  val wb_set_sboard = wb_reg_div_mul_val || wb_dcache_miss || wb_reg_rocc_val
-  val replay_wb_common = 
-    io.dmem.resp.bits.nack || wb_reg_replay || io.dpath.csr_replay
+  val wb_set_sboard = wb_reg_div_mul_val || wb_dcache_miss || wb_reg_rocc_val             // used in hazard detection, indicating longer WB and update scoreboard 
+  val replay_wb_common = io.dmem.resp.bits.nack || wb_reg_replay || io.dpath.csr_replay   // dmem nack or RF/CSR replay
   val wb_rocc_val = wb_reg_rocc_val && !replay_wb_common
-  val replay_wb = replay_wb_common || wb_reg_rocc_val && !io.rocc.cmd.ready
+  val replay_wb = replay_wb_common || wb_reg_rocc_val && !io.rocc.cmd.ready // common wb replay or RoCC not ready
 
+  // used to record the prolong register write after WB caused by dCache miss, div_mul and RoCC
+  // FPU has a similar one
   class Scoreboard(n: Int)
   {
     def set(en: Bool, addr: UInt): Unit = update(en, _next | mask(en, addr))
@@ -648,7 +649,7 @@ class Control extends Module
   io.dpath.badvaddr_wen := wb_reg_xcpt // don't care for non-memory exceptions
 
   // control transfer from ex/wb
-  take_pc_wb := replay_wb || wb_reg_xcpt || wb_reg_sret
+  take_pc_wb := replay_wb || wb_reg_xcpt || wb_reg_sret 
 
   io.dpath.sel_pc :=
     Mux(wb_reg_xcpt,      PC_PCR, // exception
@@ -656,6 +657,7 @@ class Control extends Module
     Mux(replay_wb,        PC_WB,  // replay
                           PC_MEM)))
 
+  // only update BTB when there is no replay or exception
   io.imem.btb_update.valid := (mem_reg_branch || io.imem.btb_update.bits.isJump) && !take_pc_wb
   io.imem.btb_update.bits.prediction.valid := mem_reg_btb_hit
   io.imem.btb_update.bits.prediction.bits := mem_reg_btb_resp
@@ -663,14 +665,15 @@ class Control extends Module
   io.imem.btb_update.bits.mispredict := take_pc_mem
   io.imem.btb_update.bits.isJump := mem_reg_jal || mem_reg_jalr
   io.imem.btb_update.bits.isCall := mem_reg_wen && io.dpath.mem_waddr(0)
-  io.imem.btb_update.bits.isReturn := mem_reg_jalr && io.dpath.mem_rs1_ra
+  io.imem.btb_update.bits.isReturn := mem_reg_jalr && io.dpath.mem_rs1_ra // valid function call as x1 used as LR
   io.imem.req.valid  := take_pc
 
+  // control the bypass logic
   val bypassDst = Array(id_raddr1, id_raddr2)
   val bypassSrc = Array.fill(NBYP)((Bool(true), UInt(0)))
   bypassSrc(BYP_EX) = (ex_reg_wen, io.dpath.ex_waddr)
-  bypassSrc(BYP_MEM) = (mem_reg_wen && !mem_reg_mem_val, io.dpath.mem_waddr)
-  bypassSrc(BYP_DC) = (mem_reg_wen, io.dpath.mem_waddr)
+  bypassSrc(BYP_MEM) = (mem_reg_wen && !mem_reg_mem_val, io.dpath.mem_waddr) // bypass from WB when no memory load
+  bypassSrc(BYP_DC) = (mem_reg_wen, io.dpath.mem_waddr)                      // bypass from WB with memory load 
 
   val doBypass = bypassDst.map(d => bypassSrc.map(s => s._1 && s._2 === d))
   for (i <- 0 until io.dpath.bypass.size) {
@@ -691,6 +694,7 @@ class Control extends Module
      io.fpu.dec.ren2 && id_raddr2 === io.dpath.ex_waddr ||
      io.fpu.dec.ren3 && id_raddr3 === io.dpath.ex_waddr ||
      io.fpu.dec.wen  && id_waddr  === io.dpath.ex_waddr)
+  // stall when hazard and bypass cannot resolve
   val id_ex_hazard = data_hazard_ex && (ex_reg_csr != CSR.N || ex_reg_jalr || ex_reg_mem_val || ex_reg_div_mul_val || ex_reg_fp_val || ex_reg_rocc_val) ||
                      fp_data_hazard_ex && (ex_reg_mem_val || ex_reg_fp_val)
     
@@ -721,9 +725,10 @@ class Control extends Module
      io.fpu.dec.ren2 && id_raddr2 === io.dpath.wb_waddr ||
      io.fpu.dec.ren3 && id_raddr3 === io.dpath.wb_waddr ||
      io.fpu.dec.wen  && id_waddr  === io.dpath.wb_waddr)
-  val id_wb_hazard = data_hazard_wb && wb_set_sboard ||
-                     fp_data_hazard_wb && (wb_dcache_miss || wb_reg_fp_val)
+  val id_wb_hazard = data_hazard_wb && wb_set_sboard ||                               // wb_set_sboard =  wb_reg_div_mul_val || wb_dcache_miss || wb_reg_rocc_val
+                     fp_data_hazard_wb && (wb_dcache_miss || wb_reg_fp_val)           // FPU desnot need MEM, so fp.EX is extended to MEM? 
 
+  // set the scoreboard as information from WB will be pushed out
   val id_sboard_hazard =
     (id_renx1_not0 && sboard.readBypassed(id_raddr1) ||
      id_renx2_not0 && sboard.readBypassed(id_raddr2) ||
@@ -736,12 +741,12 @@ class Control extends Module
     id_fp_val && id_stall_fpu ||
     id_mem_val && !io.dmem.req.ready ||
     id_do_fence
-  val ctrl_draind = id_interrupt || ex_reg_replay_next
-  ctrl_killd := !io.imem.resp.valid || take_pc || ctrl_stalld || ctrl_draind
+  val ctrl_draind = id_interrupt || ex_reg_replay_next                       // flush pipeline
+  ctrl_killd := !io.imem.resp.valid || take_pc || ctrl_stalld || ctrl_draind // kill the ID stage 
 
-  io.dpath.killd := take_pc || ctrl_stalld && !ctrl_draind
+  io.dpath.killd := take_pc || ctrl_stalld && !ctrl_draind // what is the different with ctrl_killd?
   io.imem.resp.ready := !ctrl_stalld || ctrl_draind
-  io.imem.invalidate := wb_reg_flush_inst
+  io.imem.invalidate := wb_reg_flush_inst // invalidate the iCache when FENCE.I
 
   io.dpath.mem_load := mem_reg_mem_val && mem_reg_wen
   io.dpath.wb_load  := wb_reg_mem_val && wb_reg_wen

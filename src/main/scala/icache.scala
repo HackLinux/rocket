@@ -50,7 +50,7 @@ class Frontend extends FrontendModule
   val tlb = Module(new TLB(params(NITLBEntries)))
 
   val s1_pc_ = Reg(UInt())
-  val s1_pc = s1_pc_ & SInt(-2) // discard LSB of PC (throughout the pipeline)
+  val s1_pc = s1_pc_ & SInt(-2) // discard LSB of PC (throughout the pipeline), the current pc (or the new pc requested)
   val s1_same_block = Reg(Bool())
   val s2_valid = Reg(init=Bool(true))
   val s2_pc = Reg(init=UInt(START_ADDR))
@@ -60,7 +60,7 @@ class Frontend extends FrontendModule
 
   val msb = vaddrBits-1
   val btbTarget = Cat(btb.io.resp.bits.target(msb), btb.io.resp.bits.target)
-  val pcp4_0 = s1_pc + UInt(coreInstBytes)
+  val pcp4_0 = s1_pc + UInt(coreInstBytes) // the next pc
   val pcp4 = Cat(s1_pc(msb) & pcp4_0(msb), pcp4_0(msb,0))
   val icmiss = s2_valid && !icache.io.resp.valid
   val predicted_npc = Mux(btb.io.resp.bits.taken, btbTarget, pcp4)
@@ -79,7 +79,7 @@ class Frontend extends FrontendModule
       s2_xcpt_if := tlb.io.resp.xcpt_if
     }
   }
-  when (io.cpu.req.valid) {
+  when (io.cpu.req.valid) { // the core need a new PC due to replay or exceptions
     s1_same_block := Bool(false)
     s1_pc_ := io.cpu.req.bits.pc
     s2_valid := Bool(false)

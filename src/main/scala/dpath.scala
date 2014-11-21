@@ -281,9 +281,9 @@ class Datapath extends Module
 
   // hook up I$
   io.imem.req.bits.pc :=
-    Mux(io.ctrl.sel_pc === PC_MEM, mem_npc,
-    Mux(io.ctrl.sel_pc === PC_PCR, pcr.io.evec,
-        wb_reg_pc)).toUInt // PC_WB
+    Mux(io.ctrl.sel_pc === PC_MEM, mem_npc,       // Normal ? 
+    Mux(io.ctrl.sel_pc === PC_PCR, pcr.io.evec,   // exception / sret instruction
+        wb_reg_pc)).toUInt                        // PC_WB: replay
   io.imem.btb_update.bits.pc := mem_reg_pc
   io.imem.btb_update.bits.target := io.imem.req.bits.pc
   io.imem.btb_update.bits.returnAddr := mem_int_wdata

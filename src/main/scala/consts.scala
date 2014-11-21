@@ -48,10 +48,10 @@ trait ScalarOpConstants {
 
   val NBYP = 4                // 4 different types of register bypass 
   val SZ_BYP = log2Up(NBYP)
-  val BYP_0   = 0
-  val BYP_EX  = 1
-  val BYP_MEM = 2
-  val BYP_DC  = 3
+  val BYP_0   = 0     // no bypass 
+  val BYP_EX  = 1     // bypass from MEM                  casued by EX.waddr == ID.raddr1/2
+  val BYP_MEM = 2     // bypass from WB                   casued by MEM.waddr == ID.raddr1/2
+  val BYP_DC  = 3     // bypass from WB from memory read  casued by WB.waddr == ID.raddr1/2
 
   val SZ_DW = 1 // data width
   val DW_X  = X
