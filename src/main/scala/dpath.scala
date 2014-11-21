@@ -72,8 +72,8 @@ class Datapath extends Module
   val rf = new RegFile
 
   // RF read ports + bypass from WB stage
-  val id_raddr = Vec(id_inst(19,15), id_inst(24,20))
-  val id_rs = id_raddr.map(rf.read _)
+  val id_raddr = Vec(id_inst(19,15), id_inst(24,20))           // get register number (rs1, rs2) if RR op 
+  val id_rs = id_raddr.map(rf.read _)                          // get the register contents (rs1, rs2)
 
   // immediate generation
   def imm(sel: Bits, inst: Bits) = {

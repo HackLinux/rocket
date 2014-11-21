@@ -9,18 +9,18 @@ import uncore._
 import scala.math._
 
 class Status extends Bundle {
-  val ip = Bits(width = 8)
-  val im = Bits(width = 8)
+  val ip = Bits(width = 8)       // interrupt sources 
+  val im = Bits(width = 8)       // interrupt mask
   val zero = Bits(width = 7)
   val er = Bool()
-  val vm = Bool()
+  val vm = Bool()                // ?? related to virtual memory 
   val s64 = Bool()
   val u64 = Bool()
-  val ef = Bool()
-  val pei = Bool()
-  val ei = Bool()
-  val ps = Bool()
-  val s = Bool()
+  val ef = Bool()                // ?? FPU is enabled 
+  val pei = Bool()               // ?? previous ei when embedded interrupt 
+  val ei = Bool()                // global interrupt enable 
+  val ps = Bool()                // ?? previous s when embedded interrupt
+  val s = Bool()                 // supervisor mode enable
 }
 
 object CSR
@@ -170,7 +170,7 @@ class CSRFile extends Module
     CSRs.instret -> reg_instret,
     CSRs.sup0 -> reg_sup0,
     CSRs.sup1 -> reg_sup1,
-    CSRs.epc -> reg_epc,
+    CSRs.epc -> reg_epc,                 // exception PC, store the PC of exceptioned inst 
     CSRs.badvaddr -> reg_badvaddr,
     CSRs.ptbr -> read_ptbr,
     CSRs.asid -> UInt(0),

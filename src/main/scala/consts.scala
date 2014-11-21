@@ -23,12 +23,12 @@ trait ScalarOpConstants {
   val PC_WB  = UInt(2, 2)
   val PC_PCR = UInt(3, 2)
 
-  val A1_X    = Bits("b??", 2)
+  val A1_X    = Bits("b??", 2) // op1 type
   val A1_ZERO = UInt(0, 2)
   val A1_RS1  = UInt(1, 2)
   val A1_PC   = UInt(2, 2)
 
-  val IMM_X  = Bits("b???", 3)
+  val IMM_X  = Bits("b???", 3) // immediate instruction variants ISA VI p12
   val IMM_S  = UInt(0, 3)
   val IMM_SB = UInt(1, 3)
   val IMM_U  = UInt(2, 3)
@@ -36,7 +36,7 @@ trait ScalarOpConstants {
   val IMM_I  = UInt(4, 3)
   val IMM_Z  = UInt(5, 3)
 
-  val A2_X    = Bits("b??", 2)
+  val A2_X    = Bits("b??", 2) // op2 type
   val A2_ZERO = UInt(0, 2)
   val A2_FOUR = UInt(1, 2)
   val A2_RS2  = UInt(2, 2)
@@ -46,14 +46,14 @@ trait ScalarOpConstants {
   val N = Bool(false)
   val Y = Bool(true)
 
-  val NBYP = 4
+  val NBYP = 4                // 4 different types of register bypass 
   val SZ_BYP = log2Up(NBYP)
   val BYP_0   = 0
   val BYP_EX  = 1
   val BYP_MEM = 2
   val BYP_DC  = 3
 
-  val SZ_DW = 1
+  val SZ_DW = 1 // data width
   val DW_X  = X
   val DW_32 = N
   val DW_64 = Y

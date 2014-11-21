@@ -11,58 +11,61 @@ import Util._
 class CtrlDpathIO extends Bundle
 {
   // outputs to datapath
-  val sel_pc   = UInt(OUTPUT, 3)
-  val killd    = Bool(OUTPUT)
-  val ren      = Vec.fill(2)(Bool(OUTPUT))
-  val sel_alu2 = UInt(OUTPUT, 3)
-  val sel_alu1 = UInt(OUTPUT, 2)
-  val sel_imm  = UInt(OUTPUT, 3)
-  val fn_dw    = Bool(OUTPUT)
-  val fn_alu   = UInt(OUTPUT, SZ_ALU_FN)
-  val div_mul_val = Bool(OUTPUT)
-  val div_mul_kill = Bool(OUTPUT)
-  val div_val  = Bool(OUTPUT)
-  val div_kill = Bool(OUTPUT)
-  val csr      = UInt(OUTPUT, 3)
-  val sret  = Bool(OUTPUT)
-  val mem_load = Bool(OUTPUT)
-  val wb_load = Bool(OUTPUT)
-  val ex_fp_val= Bool(OUTPUT)
-  val mem_fp_val= Bool(OUTPUT)
-  val ex_wen = Bool(OUTPUT)
-  val ex_valid = Bool(OUTPUT)
-  val mem_jalr = Bool(OUTPUT)
-  val mem_branch = Bool(OUTPUT)
-  val mem_wen  = Bool(OUTPUT)
-  val wb_wen   = Bool(OUTPUT)
-  val ex_mem_type = Bits(OUTPUT, 3)
-  val ex_rs2_val = Bool(OUTPUT)
-  val ex_rocc_val = Bool(OUTPUT)
-  val mem_rocc_val = Bool(OUTPUT)
-  val bypass = Vec.fill(2)(Bool(OUTPUT))
-  val bypass_src = Vec.fill(2)(Bits(OUTPUT, SZ_BYP))
-  val ll_ready = Bool(OUTPUT)
+  val sel_pc   = UInt(OUTPUT, 3)               // ?? select PC in the request to iMem 
+  val killd    = Bool(OUTPUT)                  // kill an instruction, start from EX
+  val ren      = Vec.fill(2)(Bool(OUTPUT))     // ?? allow read from RF
+  val sel_alu2 = UInt(OUTPUT, 3)               // choose op2 in EX
+  val sel_alu1 = UInt(OUTPUT, 2)               // choose op1 in EX
+  val sel_imm  = UInt(OUTPUT, 3)               // choose imm in EX
+  val fn_dw    = Bool(OUTPUT)                  // function_datawidth for ALU or DIV in EX
+  val fn_alu   = UInt(OUTPUT, SZ_ALU_FN)       // function for ALU or DIV in EX
+  val div_mul_val = Bool(OUTPUT)               // data for DIV valid in EX
+  val div_mul_kill = Bool(OUTPUT)              // kill DIV in EX
+  val div_val  = Bool(OUTPUT)                  // ???
+  val div_kill = Bool(OUTPUT)                  // ???
+  val csr      = UInt(OUTPUT, 3)               // CSR command, deciding CSR -> RF in WB Arb
+  val sret  = Bool(OUTPUT)                     // ??? -> PTW
+  val mem_load = Bool(OUTPUT)                  // ???
+  val wb_load = Bool(OUTPUT)                   // ???
+  val ex_fp_val= Bool(OUTPUT)                  // ??? -> dMem req.tag in EX/MEM
+  val mem_fp_val= Bool(OUTPUT)                 // choose FPU data in MEM and WB
+  val ex_wen = Bool(OUTPUT)                    // ???
+  val ex_valid = Bool(OUTPUT)                  // EX valid, considtion for no misprediction
+  val mem_jalr = Bool(OUTPUT)                  // used in cal branch target in WB arb
+  val mem_branch = Bool(OUTPUT)                // used in cal branch target in WB arb
+  val mem_wen  = Bool(OUTPUT)                  // enable WB
+  val wb_wen   = Bool(OUTPUT)                  // enable RF write in WB
+  val ex_mem_type = Bits(OUTPUT, 3)            // ???
+  val ex_rs2_val = Bool(OUTPUT)                // enable rs(1) to mem_rs(2) in MEM
+  val ex_rocc_val = Bool(OUTPUT)               // ???
+  val mem_rocc_val = Bool(OUTPUT)              // enable rocc_rs(2) -> wb_rs(2) in WB
+  val bypass = Vec.fill(2)(Bool(OUTPUT))       // enable bypass in DC
+  val bypass_src = Vec.fill(2)(Bits(OUTPUT, SZ_BYP)) // choose bypass src reg in DC
+  val ll_ready = Bool(OUTPUT)                  // allow DIV or RoCC return data in WB arb
   // exception handling
-  val retire = Bool(OUTPUT)
-  val exception = Bool(OUTPUT)
-  val cause    = UInt(OUTPUT, params(XprLen))
-  val badvaddr_wen = Bool(OUTPUT) // high for a load/store access fault
+  val retire = Bool(OUTPUT)                    // ??? debug report 
+  val exception = Bool(OUTPUT)                 // ???
+  val cause    = UInt(OUTPUT, params(XprLen))  // ???
+  val badvaddr_wen = Bool(OUTPUT)              // ???   (Orig) high for a load/store access fault
   // inputs from datapath
-  val inst    = Bits(INPUT, 32)
-  val jalr_eq = Bool(INPUT)
-  val mem_br_taken = Bool(INPUT)
-  val mem_misprediction  = Bool(INPUT)
-  val div_mul_rdy = Bool(INPUT)
-  val ll_wen = Bool(INPUT)
-  val ll_waddr = UInt(INPUT, 5)
-  val ex_waddr = UInt(INPUT, 5)
-  val mem_rs1_ra = Bool(INPUT)
-  val mem_waddr = UInt(INPUT, 5)
-  val wb_waddr = UInt(INPUT, 5)
-  val status = new Status().asInput
-  val fp_sboard_clr  = Bool(INPUT)
-  val fp_sboard_clra = UInt(INPUT, 5)
-  val csr_replay = Bool(INPUT)
+  val inst    = Bits(INPUT, 32)                // inst from iMem though DPath
+  val jalr_eq = Bool(INPUT)                    // ???
+  val mem_br_taken = Bool(INPUT)               // ALU output when branch in WB arb
+  val mem_misprediction  = Bool(INPUT)         // branch misprediction detected in WB arb
+  val div_mul_rdy = Bool(INPUT)                // div ready for req
+  val ll_wen = Bool(INPUT)                     // div.resp.fire() in WB arb
+  val ll_waddr = UInt(INPUT, 5)                // div.resp.tag in WB arb
+  val ex_waddr = UInt(INPUT, 5)                // rd in EX
+  val mem_rs1_ra = Bool(INPUT)                 // ??? mem_rs(1) is x1 (return addr?)
+  val mem_waddr = UInt(INPUT, 5)               // rd in MEM 
+  val wb_waddr = UInt(INPUT, 5)                // rd in WB
+  val status = new Status().asInput            // ???
+  
+  // ??? scoreboard clear (for div/mul and D$ load miss writebacks)
+  val fp_sboard_clr  = Bool(INPUT)             // ??? dmem_resp_replay && dmem_resp_fpu 
+  val fp_sboard_clra = UInt(INPUT, 5)          // ??? dmem_resp_waddr
+  
+  val csr_replay = Bool(INPUT)                 // ??? pcr.replay 
 }
 
 abstract trait DecodeConstants
@@ -82,6 +85,7 @@ abstract trait DecodeConstants
                                         
   val table: Array[(UInt, List[UInt])]
 }
+
 
 object XDecode extends DecodeConstants
 {
@@ -395,18 +399,18 @@ class Control extends Module
   val ctrl_killx = Bool()
   val ctrl_killm = Bool()
 
-  val id_raddr3 = io.dpath.inst(31,27)
-  val id_raddr2 = io.dpath.inst(24,20)
-  val id_raddr1 = io.dpath.inst(19,15)
-  val id_waddr  = io.dpath.inst(11,7)
+  val id_raddr3 = io.dpath.inst(31,27) // Floating-point fused multi-add    RISCV ISA VI p41
+  val id_raddr2 = io.dpath.inst(24,20) // rs2
+  val id_raddr1 = io.dpath.inst(19,15) // rs1
+  val id_waddr  = io.dpath.inst(11,7)  // rd
   val id_load_use = Bool()
   val id_reg_fence = Reg(init=Bool(false))
 
   val sr = io.dpath.status
   var id_interrupts = (0 until sr.ip.getWidth).map(i => (sr.im(i) && sr.ip(i), UInt(BigInt(1) << (params(XprLen)-1) | i)))
 
-  val (id_interrupt_unmasked, id_interrupt_cause) = checkExceptions(id_interrupts)
-  val id_interrupt = io.dpath.status.ei && id_interrupt_unmasked
+  val (id_interrupt_unmasked, id_interrupt_cause) = checkExceptions(id_interrupts)   // get the current interrupts
+  val id_interrupt = io.dpath.status.ei && id_interrupt_unmasked                     // high if an interrupt occured
 
   def checkExceptions(x: Seq[(Bool, UInt)]) =
     (x.map(_._1).reduce(_||_), PriorityMux(x))
@@ -416,10 +420,10 @@ class Control extends Module
   if(params(BuildFPU).isEmpty)
     legal_csrs --= fp_csrs
 
-  val id_csr_addr = io.dpath.inst(31,20)
+  val id_csr_addr = io.dpath.inst(31,20) // CSR access instructions RISC-V VI p37 
   val isLegalCSR = Vec.tabulate(1 << id_csr_addr.getWidth)(i => Bool(legal_csrs contains i))
   val id_csr_en = id_csr != CSR.N
-  val id_csr_fp = Bool(!params(BuildFPU).isEmpty) && id_csr_en && DecodeLogic(id_csr_addr, fp_csrs, CSRs.all.toSet -- fp_csrs)
+  val id_csr_fp = Bool(!params(BuildFPU).isEmpty) && id_csr_en && DecodeLogic(id_csr_addr, fp_csrs, CSRs.all.toSet -- fp_csrs) // valid csr_addr for fp CSRs
   val id_csr_wen = id_raddr1 != UInt(0) || !Vec(CSR.S, CSR.C).contains(id_csr)
   val id_csr_invalid = id_csr_en && !isLegalCSR(id_csr_addr)
   val id_csr_privileged = id_csr_en &&
