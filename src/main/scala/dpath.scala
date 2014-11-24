@@ -284,7 +284,8 @@ class Datapath extends Module
     Mux(io.ctrl.sel_pc === PC_MEM, mem_npc,       // Normal ? 
     Mux(io.ctrl.sel_pc === PC_PCR, pcr.io.evec,   // exception / sret instruction
         wb_reg_pc)).toUInt                        // PC_WB: replay
-  io.imem.btb_update.bits.pc := mem_reg_pc
+
+  io.imem.btb_update.bits.pc := mem_reg_pc                  // return the branch result to BTB for branch prediction update 
   io.imem.btb_update.bits.target := io.imem.req.bits.pc
   io.imem.btb_update.bits.returnAddr := mem_int_wdata
   
