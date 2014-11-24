@@ -24,25 +24,25 @@ class FrontendReq extends CoreBundle {
 
 class FrontendResp extends CoreBundle {
   val pc = UInt(width = params(VAddrBits)+1)  // ID stage PC
-  val data = Bits(width = coreInstBits)
-  val xcpt_ma = Bool()
-  val xcpt_if = Bool()
+  val data = Bits(width = coreInstBits)       // ID stage inst
+  val xcpt_ma = Bool()                        // misalign
+  val xcpt_if = Bool()                        // faulty fetch
 }
 
 class CPUFrontendIO extends CoreBundle {
-  val req = Valid(new FrontendReq)
-  val resp = Decoupled(new FrontendResp).flip
-  val btb_resp = Valid(new BTBResp).flip
-  val btb_update = Valid(new BTBUpdate)
-  val ptw = new TLBPTWIO().flip
-  val invalidate = Bool(OUTPUT)
+  val req = Valid(new FrontendReq)              // instruction fetch request from cpu
+  val resp = Decoupled(new FrontendResp).flip   // fetched instruction from iCache
+  val btb_resp = Valid(new BTBResp).flip        // ?? branch prediction from BTB
+  val btb_update = Valid(new BTBUpdate)         // update for the BTB
+  val ptw = new TLBPTWIO().flip                 // ?? TLB miss, request for page table
+  val invalidate = Bool(OUTPUT)                 // invalidate an cache block
 }
 
 class Frontend extends FrontendModule
 {
   val io = new Bundle {
-    val cpu = new CPUFrontendIO().flip
-    val mem = new UncachedTileLinkIO
+    val cpu = new CPUFrontendIO().flip          // cpu, IO with core; cpu.ptw, page request to PTW 
+    val mem = new UncachedTileLinkIO            // memory request
   }
 
   val btb = Module(new BTB)
@@ -179,6 +179,7 @@ class ICache extends FrontendModule
   var refill_bits = io.mem.grant.bits
   def doRefill(g: Grant): Bool = Bool(true)
   if(refillCycles > 1) {
+    // serialize the grant message from memArb
     val ser = Module(new FlowThroughSerializer(io.mem.grant.bits, refillCycles, doRefill))
     ser.io.in <> io.mem.grant
     refill_cnt = ser.io.cnt
@@ -257,6 +258,7 @@ class ICache extends FrontendModule
   io.resp.bits.data := Mux1H(s2_tag_hit, s2_dout_word)
   io.resp.bits.datablock := Mux1H(s2_tag_hit, s2_dout)
 
+  // queue the finish message to memArb
   val ack_q = Module(new Queue(new LogicalNetworkIO(new Finish), 1))
   ack_q.io.enq.valid := refill_done && co.requiresAckForGrant(refill_bits.payload)
   ack_q.io.enq.bits.payload.master_xact_id := refill_bits.payload.master_xact_id

@@ -159,6 +159,8 @@ object Random
     Vec.tabulate(slices)(i => value < round((i << value.getWidth).toDouble / slices))
 }
 
+// assumeing the width of in.bits.payload.data is wide on input but narrow on output
+// the module serialize the payload.data into n transactions
 class FlowThroughSerializer[T <: HasTileLinkData](gen: LogicalNetworkIO[T], n: Int, doSer: T => Bool) extends Module {
   val io = new Bundle {
     val in = Decoupled(gen.clone).flip
@@ -173,14 +175,14 @@ class FlowThroughSerializer[T <: HasTileLinkData](gen: LogicalNetworkIO[T], n: I
   val rbits = Reg(init=io.in.bits)
   val active = Reg(init=Bool(false))
 
-  val shifter = Vec.fill(n){Bits(width = narrowWidth)}
-  (0 until n).foreach { 
+  val shifter = Vec.fill(n){Bits(width = narrowWidth)}                           // break a 1-D stream into a 2-D block vector 
+  (0 until n).foreach {                                                          // (0 until n-1) ? 
     i => shifter(i) := rbits.payload.data((i+1)*narrowWidth-1,i*narrowWidth)
   }
 
   io.done := Bool(false)
   io.cnt := cnt
-  io.in.ready := !active
+  io.in.ready := !active  
   io.out.valid := active || io.in.valid
   io.out.bits := io.in.bits
   when(!active && io.in.valid) {

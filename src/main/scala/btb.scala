@@ -20,17 +20,18 @@ abstract trait BTBParameters extends UsesParameters {
   val nBHT = 1 << log2Up(entries*2)
 }
 
+// return address stack
 class RAS(nras: Int) {
   def push(addr: UInt): Unit = {
     when (count < nras) { count := count + 1 }
-    val nextPos = Mux(Bool(isPow2(nras)) || pos > 0, pos+1, UInt(0))
+    val nextPos = Mux(Bool(isPow2(nras)) || pos > 0, pos+1, UInt(0)) // the guard seems unneccessary
     stack(nextPos) := addr
     pos := nextPos
   }
   def peek: UInt = stack(pos)
   def pop: Unit = when (!isEmpty) {
     count := count - 1
-    pos := Mux(Bool(isPow2(nras)) || pos > 0, pos-1, UInt(nras-1))
+    pos := Mux(Bool(isPow2(nras)) || pos > 0, pos-1, UInt(nras-1))  // the guard seems unneccessary
   }
   def clear: Unit = count := UInt(0)
   def isEmpty: Bool = count === UInt(0)
@@ -92,9 +93,9 @@ class BTBReq extends Bundle with BTBParameters {
 // fully-associative branch target buffer
 class BTB extends Module with BTBParameters {
   val io = new Bundle {
-    val req = Valid(new BTBReq).flip
-    val resp = Valid(new BTBResp)
-    val update = Valid(new BTBUpdate).flip
+    val req = Valid(new BTBReq).flip         // request from icache
+    val resp = Valid(new BTBResp)            // branch prediction to icache and core
+    val update = Valid(new BTBUpdate).flip   // branch update from core
     val invalidate = Bool(INPUT)
   }
 
