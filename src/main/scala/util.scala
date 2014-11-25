@@ -176,7 +176,7 @@ class FlowThroughSerializer[T <: HasTileLinkData](gen: LogicalNetworkIO[T], n: I
   val active = Reg(init=Bool(false))
 
   val shifter = Vec.fill(n){Bits(width = narrowWidth)}                           // break a 1-D stream into a 2-D block vector 
-  (0 until n).foreach {                                                          // (0 until n-1) ? 
+  (0 until n).foreach {
     i => shifter(i) := rbits.payload.data((i+1)*narrowWidth-1,i*narrowWidth)
   }
 

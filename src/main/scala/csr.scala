@@ -13,7 +13,7 @@ class Status extends Bundle {
   val im = Bits(width = 8)       // interrupt mask
   val zero = Bits(width = 7)
   val er = Bool()                // RoCC is enabled
-  val vm = Bool()                // ?? related to virtual memory 
+  val vm = Bool()                // Virtual memory enable
   val s64 = Bool()
   val u64 = Bool()
   val ef = Bool()                // FPU is enabled 

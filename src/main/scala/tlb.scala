@@ -7,24 +7,25 @@ import uncore._
 import scala.math._
 
 class CAMIO(entries: Int, addr_bits: Int, tag_bits: Int) extends Bundle {
-    val clear        = Bool(INPUT)
-    val clear_hit    = Bool(INPUT)
+    val clear        = Bool(INPUT)             // clear all entries 
+    val clear_hit    = Bool(INPUT)             // clear the hitted entries 
     val tag          = Bits(INPUT, tag_bits)
     val hit          = Bool(OUTPUT)
-    val hits         = UInt(OUTPUT, entries)
-    val valid_bits   = Bits(OUTPUT, entries)
+    val hits         = UInt(OUTPUT, entries)   // identify the hitted entries 
+    val valid_bits   = Bits(OUTPUT, entries)   // identify valid entries 
     
     val write        = Bool(INPUT)
     val write_tag    = Bits(INPUT, tag_bits)
     val write_addr    = UInt(INPUT, addr_bits)
 }
 
+// a line of CAM memory entries
 class RocketCAM(entries: Int, tag_bits: Int) extends Module {
   val addr_bits = ceil(log(entries)/log(2)).toInt
   val io = new CAMIO(entries, addr_bits, tag_bits)
   val cam_tags = Mem(Bits(width = tag_bits), entries)
 
-  val vb_array = Reg(init=Bits(0, entries))
+  val vb_array = Reg(init=Bits(0, entries))                      // identify valid entries 
   when (io.write) {
     vb_array := vb_array.bitSet(io.write_addr, Bool(true))
     cam_tags(io.write_addr) := io.write_tag
@@ -43,6 +44,9 @@ class RocketCAM(entries: Int, tag_bits: Int) extends Module {
   io.hit := io.hits.orR
 }
 
+// tree PLRU algorithm
+// Reference: Christoph Berg. PLRU Cache Domino Effects. 
+//            International Workshop on Worst-Case Execution Time Analysis, 2006
 class PseudoLRU(n: Int)
 {
   val state = Reg(Bits(width = n))
@@ -80,9 +84,9 @@ class TLBResp(entries: Int) extends Bundle
   val miss = Bool(OUTPUT)
   val hit_idx = UInt(OUTPUT, entries)
   val ppn = UInt(OUTPUT, params(PPNBits))
-  val xcpt_ld = Bool(OUTPUT)
-  val xcpt_st = Bool(OUTPUT)
-  val xcpt_if = Bool(OUTPUT)
+  val xcpt_ld = Bool(OUTPUT)               // page not readable 
+  val xcpt_st = Bool(OUTPUT)               // page not writable
+  val xcpt_if = Bool(OUTPUT)               // page not executable
 }
 
 class TLB(entries: Int) extends Module
@@ -93,12 +97,17 @@ class TLB(entries: Int) extends Module
     val ptw = new TLBPTWIO
   }
 
+  // ready: TLB is ready for request
+  // request: TLB requests PTW
+  // wait: TLB misses and wait for PTW response
+  // wait_invalidate
+
   val s_ready :: s_request :: s_wait :: s_wait_invalidate :: Nil = Enum(UInt(), 4)
   val state = Reg(init=s_ready)
   val r_refill_tag = Reg(UInt())
   val r_refill_waddr = Reg(UInt())
 
-  val tag_cam = Module(new RocketCAM(entries, params(ASIdBits)+params(VPNBits)))
+  val tag_cam = Module(new RocketCAM(entries, params(ASIdBits)+params(VPNBits))) // only one line, the TLB is fully associate
   val tag_ram = Mem(io.ptw.resp.bits.ppn.clone, entries)
   
   val lookup_tag = Cat(io.req.bits.asid, io.req.bits.vpn).toUInt
@@ -135,12 +144,12 @@ class TLB(entries: Int) extends Module
   val plru = new PseudoLRU(entries)
   val repl_waddr = Mux(has_invalid_entry, invalid_entry, plru.replace)
   
-  val bad_va = io.req.bits.vpn(params(VPNBits)) != io.req.bits.vpn(params(VPNBits)-1)
+  val bad_va = io.req.bits.vpn(params(VPNBits)) != io.req.bits.vpn(params(VPNBits)-1) // ??? how could a VA being bad
   val tlb_hit  = io.ptw.status.vm && tag_hit
   val tlb_miss = io.ptw.status.vm && !tag_hit && !bad_va
   
   when (io.req.valid && tlb_hit) {
-    plru.access(OHToUInt(tag_cam.io.hits))
+    plru.access(OHToUInt(tag_cam.io.hits)) // update the LRU order
   }
 
   io.req.ready := state === s_ready
@@ -154,7 +163,7 @@ class TLB(entries: Int) extends Module
   io.ptw.req.valid := state === s_request
   io.ptw.req.bits := r_refill_tag
 
-  when (io.req.fire() && tlb_miss) {
+  when (io.req.fire() && tlb_miss) { // TLB miss, request to PTW
     state := s_request
     r_refill_tag := lookup_tag
     r_refill_waddr := repl_waddr
