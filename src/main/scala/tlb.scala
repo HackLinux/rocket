@@ -99,8 +99,8 @@ class TLB(entries: Int) extends Module
 
   // ready: TLB is ready for request
   // request: TLB requests PTW
-  // wait: TLB misses and wait for PTW response
-  // wait_invalidate
+  // wait: TLB misses and waits for PTW response
+  // wait_invalidate: TLB misses and waits for PTW, while gets an invalidate request from PTW
 
   val s_ready :: s_request :: s_wait :: s_wait_invalidate :: Nil = Enum(UInt(), 4)
   val state = Reg(init=s_ready)

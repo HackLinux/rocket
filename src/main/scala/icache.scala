@@ -126,6 +126,10 @@ class ICacheResp extends FrontendBundle {
   val datablock = Bits(width = rowBits)
 }
 
+// physically tagged and physically indexed cache
+// indicating TLB on the critical path
+// therefore, pipeline stage 1 is dedicated for TLB
+// use random replacement
 class ICache extends FrontendModule
 {
   val io = new Bundle {
@@ -138,18 +142,23 @@ class ICache extends FrontendModule
   require(isPow2(coreInstBytes))
   require(pgIdxBits >= untagBits)
 
+  // ready:
+  // request:
+  // refill_wait:
+  // refill:
+
   val s_ready :: s_request :: s_refill_wait :: s_refill :: Nil = Enum(UInt(), 4)
   val state = Reg(init=s_ready)
-  val invalidated = Reg(Bool())
-  val stall = !io.resp.ready
-  val rdy = Bool()
+  val invalidated = Reg(Bool())                       // cache being invalidated 
+  val stall = !io.resp.ready                          // cache paused by core
+  val rdy = Bool()                                    // cache not miss (yet)
 
-  val s2_valid = Reg(init=Bool(false))
-  val s2_addr = Reg(UInt(width = paddrBits))
-  val s2_any_tag_hit = Bool()
+  val s2_valid = Reg(init=Bool(false))                // cache miss or hit result valid in satge 2
+  val s2_addr = Reg(UInt(width = paddrBits))          // physical address in phase 2
+  val s2_any_tag_hit = Bool()                         // potential hit in iCache in stage 2
 
   val s1_valid = Reg(init=Bool(false))
-  val s1_pgoff = Reg(UInt(width = pgIdxBits))
+  val s1_pgoff = Reg(UInt(width = pgIdxBits))         // page offset from core in stage 1
   val s1_addr = Cat(io.req.bits.ppn, s1_pgoff).toUInt
   val s1_tag = s1_addr(tagBits+untagBits-1,untagBits)
 
@@ -166,11 +175,11 @@ class ICache extends FrontendModule
     s2_addr := s1_addr
   }
 
-  val s2_tag = s2_addr(tagBits+untagBits-1,untagBits)
-  val s2_idx = s2_addr(untagBits-1,blockOffBits)
-  val s2_offset = s2_addr(blockOffBits-1,0)
-  val s2_hit = s2_valid && s2_any_tag_hit
-  val s2_miss = s2_valid && !s2_any_tag_hit
+  val s2_tag = s2_addr(tagBits+untagBits-1,untagBits) // tag from s2_addr
+  val s2_idx = s2_addr(untagBits-1,blockOffBits)      // index from s2_addr
+  val s2_offset = s2_addr(blockOffBits-1,0)           // offset
+  val s2_hit = s2_valid && s2_any_tag_hit             // cache hit
+  val s2_miss = s2_valid && !s2_any_tag_hit           // cache miss
   rdy := state === s_ready && !s2_miss
 
   var refill_cnt = UInt(0)
@@ -178,7 +187,7 @@ class ICache extends FrontendModule
   var refill_valid = io.mem.grant.valid
   var refill_bits = io.mem.grant.bits
   def doRefill(g: Grant): Bool = Bool(true)
-  if(refillCycles > 1) {
+  if(refillCycles > 1) {                              // memory datawidth > cache datawidth 
     // serialize the grant message from memArb
     val ser = Module(new FlowThroughSerializer(io.mem.grant.bits, refillCycles, doRefill))
     ser.io.in <> io.mem.grant
@@ -192,7 +201,9 @@ class ICache extends FrontendModule
   }
   //assert(!c.tlco.isVoluntary(refill_bits.payload) || !refill_valid, "UncachedRequestors shouldn't get voluntary grants.")
 
-  val repl_way = if (isDM) UInt(0) else LFSR16(s2_miss)(log2Up(nWays)-1,0)
+  val repl_way = 
+    if (isDM) UInt(0)                                 // isDM: is directly mapped 
+    else LFSR16(s2_miss)(log2Up(nWays)-1,0)           // indicating random replacement
   val entagbits = code.width(tagBits)
   val tag_array = Mem(Bits(width = entagbits*nWays), nSets, seqRead = true)
   val tag_raddr = Reg(UInt())
