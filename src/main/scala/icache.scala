@@ -11,7 +11,7 @@ case object ECCCode extends Field[Option[Code]]
 
 abstract trait L1CacheParameters extends CacheParameters with CoreParameters {
   val co = params(TLCoherence)
-  val code = params(ECCCode).getOrElse(new IdentityCode)
+  val code = params(ECCCode).getOrElse(new IdentityCode) // if ECCCode is not defined, use IdentityCode
 }
 
 abstract trait FrontendParameters extends L1CacheParameters
@@ -32,9 +32,9 @@ class FrontendResp extends CoreBundle {
 class CPUFrontendIO extends CoreBundle {
   val req = Valid(new FrontendReq)              // instruction fetch request from cpu
   val resp = Decoupled(new FrontendResp).flip   // fetched instruction from iCache
-  val btb_resp = Valid(new BTBResp).flip        // ?? branch prediction from BTB
+  val btb_resp = Valid(new BTBResp).flip        // branch prediction from BTB
   val btb_update = Valid(new BTBUpdate)         // update for the BTB
-  val ptw = new TLBPTWIO().flip                 // ?? TLB miss, request for page table
+  val ptw = new TLBPTWIO().flip                 // TLB miss, request for page table
   val invalidate = Bool(OUTPUT)                 // invalidate an cache block
 }
 
@@ -128,8 +128,8 @@ class ICacheResp extends FrontendBundle {
 
 // physically tagged and physically indexed cache
 // indicating TLB on the critical path
-// therefore, pipeline stage 1 is dedicated for TLB
 // use random replacement
+// blocking: only one memory request at a time
 class ICache extends FrontendModule
 {
   val io = new Bundle {
@@ -141,11 +141,12 @@ class ICache extends FrontendModule
   require(isPow2(nSets) && isPow2(nWays))
   require(isPow2(coreInstBytes))
   require(pgIdxBits >= untagBits)
+  // need require(isPow2(refillCycles)) ?
 
-  // ready:
-  // request:
-  // refill_wait:
-  // refill:
+  // ready: icache ready for request from core
+  // request: icache miss and ask for refill from mem
+  // refill_wait: memory request ready for sending
+  // refill: refilling the cache line
 
   val s_ready :: s_request :: s_refill_wait :: s_refill :: Nil = Enum(UInt(), 4)
   val state = Reg(init=s_ready)
@@ -187,7 +188,7 @@ class ICache extends FrontendModule
   var refill_valid = io.mem.grant.valid
   var refill_bits = io.mem.grant.bits
   def doRefill(g: Grant): Bool = Bool(true)
-  if(refillCycles > 1) {                              // memory datawidth > cache datawidth 
+  if(refillCycles > 1) {                              // memory datawidth > cache datawidth ?? May be caused by memory burst transfer
     // serialize the grant message from memArb
     val ser = Module(new FlowThroughSerializer(io.mem.grant.bits, refillCycles, doRefill))
     ser.io.in <> io.mem.grant
@@ -204,20 +205,20 @@ class ICache extends FrontendModule
   val repl_way = 
     if (isDM) UInt(0)                                 // isDM: is directly mapped 
     else LFSR16(s2_miss)(log2Up(nWays)-1,0)           // indicating random replacement
-  val entagbits = code.width(tagBits)
+  val entagbits = code.width(tagBits)                 // error checking for tagBits
   val tag_array = Mem(Bits(width = entagbits*nWays), nSets, seqRead = true)
   val tag_raddr = Reg(UInt())
   when (refill_done) {
-    val wmask = FillInterleaved(entagbits, if (isDM) Bits(1) else UIntToOH(repl_way))
-    val tag = code.encode(s2_tag).toUInt
-    tag_array.write(s2_idx, Fill(nWays, tag), wmask)
+    val wmask = FillInterleaved(entagbits, if (isDM) Bits(1) else UIntToOH(repl_way)) // generate a write mask
+    val tag = code.encode(s2_tag).toUInt              // generate the tag with ECC bits
+    tag_array.write(s2_idx, Fill(nWays, tag), wmask)  // write to the cache
   }
 //  /*.else*/when (s0_valid) { // uncomment ".else" to infer 6T SRAM
   .elsewhen (s0_valid) {
     tag_raddr := s0_pgoff(untagBits-1,blockOffBits)
   }
 
-  val vb_array = Reg(init=Bits(0, nSets*nWays))
+  val vb_array = Reg(init=Bits(0, nSets*nWays))       // block valid flag array 
   when (refill_done && !invalidated) {
     vb_array := vb_array.bitSet(Cat(repl_way, s2_idx), Bool(true))
   }
@@ -225,7 +226,9 @@ class ICache extends FrontendModule
     vb_array := Bits(0)
     invalidated := Bool(true)
   }
-  val s2_disparity = Vec.fill(nWays){Bool()}
+
+  val s2_disparity = Vec.fill(nWays){Bool()}          // ECC error in stage 2
+ 
   for (i <- 0 until nWays)
     when (s2_valid && s2_disparity(i)) { vb_array := vb_array.bitSet(Cat(UInt(i), s2_idx), Bool(false)) }
 
@@ -271,7 +274,7 @@ class ICache extends FrontendModule
 
   // queue the finish message to memArb
   val ack_q = Module(new Queue(new LogicalNetworkIO(new Finish), 1))
-  ack_q.io.enq.valid := refill_done && co.requiresAckForGrant(refill_bits.payload)
+  ack_q.io.enq.valid := refill_done && co.requiresAckForGrant(refill_bits.payload) // coherence policy here ?
   ack_q.io.enq.bits.payload.master_xact_id := refill_bits.payload.master_xact_id
   ack_q.io.enq.bits.header.dst := refill_bits.header.src
 
