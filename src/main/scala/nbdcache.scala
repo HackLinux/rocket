@@ -163,27 +163,38 @@ class WritebackReq extends L1HellaCacheBundle {
   val r_type = UInt(width = co.releaseTypeWidth) 
 }
 
+// miss status holding register
 class MSHR(id: Int) extends L1HellaCacheModule {
   val io = new Bundle {
-    val req_pri_val    = Bool(INPUT)
-    val req_pri_rdy    = Bool(OUTPUT)
-    val req_sec_val    = Bool(INPUT)
-    val req_sec_rdy    = Bool(OUTPUT)
-    val req_bits       = new MSHRReqInternal().asInput
+    val req_pri_val    = Bool(INPUT)                      // := alloc_arb.io.in(i).ready
+    val req_pri_rdy    = Bool(OUTPUT)                     // := state === s_invalid
+    val req_sec_val    = Bool(INPUT)                      // := io.req.valid && sdq_rdy && tag_match
+    val req_sec_rdy    = Bool(OUTPUT)                     // := sec_rdy && rpq.io.enq.ready
+    val req_bits       = new MSHRReqInternal().asInput    // := io.req.bits
 
-    val idx_match       = Bool(OUTPUT)
-    val tag             = Bits(OUTPUT, tagBits)
+    val idx_match       = Bool(OUTPUT)                    // req_idx === io.req_bits.addr(untagBits-1,blockOffBits)
+    val tag             = Bits(OUTPUT, tagBits)           // req.addr >> untagBits
 
-    val mem_req  = Decoupled(new Acquire)
-    val mem_resp = new DataWriteReq().asOutput
+    val mem_req  = Decoupled(new Acquire)                 // send Acquire message to memory 
+    val mem_resp = new DataWriteReq().asOutput            // request to write back data to cache?
     val meta_read = Decoupled(new L1MetaReadReq)
     val meta_write = Decoupled(new L1MetaWriteReq)
     val replay = Decoupled(new ReplayInternal)
-    val mem_grant = Valid(new LogicalNetworkIO(new Grant)).flip
-    val mem_finish = Decoupled(new LogicalNetworkIO(new Finish))
+    val mem_grant = Valid(new LogicalNetworkIO(new Grant)).flip // memory Grant response
+    val mem_finish = Decoupled(new LogicalNetworkIO(new Finish)) // memory finish message
     val wb_req = Decoupled(new WritebackReq)
     val probe_rdy = Bool(OUTPUT)
   }
+
+  // invalid:
+  // wb_req:
+  // wb_resp:
+  // meta_clear:
+  // refill_req:
+  // refill_resp:
+  // meta_write_req:
+  // meta_write_resp:
+  // drain_rpq:
 
   val s_invalid :: s_wb_req :: s_wb_resp :: s_meta_clear :: s_refill_req :: s_refill_resp :: s_meta_write_req :: s_meta_write_resp :: s_drain_rpq :: Nil = Enum(UInt(), 9)
   val state = Reg(init=s_invalid)
@@ -582,12 +593,12 @@ class DataArray extends L1HellaCacheModule {
   val waddr = io.write.bits.addr >> rowOffBits
   val raddr = io.read.bits.addr >> rowOffBits
 
-  if (doNarrowRead) {
+  if (doNarrowRead) { // divide nWaya by rows (BANKs ?)
     for (w <- 0 until nWays by rowWords) {
       val wway_en = io.write.bits.way_en(w+rowWords-1,w)
       val rway_en = io.read.bits.way_en(w+rowWords-1,w)
       val resp = Vec.fill(rowWords){Bits(width = encRowBits)}
-      val r_raddr = RegEnable(io.read.bits.addr, io.read.valid)
+      val r_raddr = RegEnable(io.read.bits.addr, io.read.valid) // register the raddr
       for (p <- 0 until resp.size) {
         val array = Mem(Bits(width=encRowBits), nSets*refillCycles, seqRead = true)
         when (wway_en.orR && io.write.valid && io.write.bits.wmask(p)) {
@@ -610,7 +621,7 @@ class DataArray extends L1HellaCacheModule {
     for (w <- 0 until nWays) {
       val array = Mem(Bits(width=encRowBits), nSets*refillCycles, seqRead = true)
       when (io.write.bits.way_en(w) && io.write.valid) {
-        array.write(waddr, io.write.bits.data, wmask)
+        array.write(waddr, io.write.bits.data, wmask) // require nWays <= rowWords ?
       }
       io.resp(w) := array(RegEnable(raddr, io.read.bits.way_en(w) && io.read.valid))
     }
@@ -620,6 +631,7 @@ class DataArray extends L1HellaCacheModule {
   io.write.ready := Bool(true)
 }
 
+// automatic operation ALU
 class AMOALU extends L1HellaCacheModule {
   val io = new Bundle {
     val addr = Bits(INPUT, blockOffBits)
@@ -630,7 +642,7 @@ class AMOALU extends L1HellaCacheModule {
     val out = Bits(OUTPUT, coreDataBits)
   }
 
-  require(coreDataBits == 64)
+  require(coreDataBits == 64)                               // not very parameterizable
   val storegen = new StoreGen(io.typ, io.addr, io.rhs)
   val rhs = storegen.wordData
   
@@ -640,7 +652,7 @@ class AMOALU extends L1HellaCacheModule {
   val word = io.typ === MT_W || io.typ === MT_WU || io.typ === MT_B || io.typ === MT_BU
 
   val mask = SInt(-1,64) ^ (io.addr(2) << 31)
-  val adder_out = (io.lhs & mask).toUInt + (rhs & mask)
+  val adder_out = (io.lhs & mask).toUInt + (rhs & mask)     // if word and addr(2), stop carry from lower word
 
   val cmp_lhs  = Mux(word && !io.addr(2), io.lhs(31), io.lhs(63))
   val cmp_rhs  = Mux(word && !io.addr(2), rhs(31), rhs(63))

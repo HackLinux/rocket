@@ -227,9 +227,8 @@ class ICache extends FrontendModule
     invalidated := Bool(true)
   }
 
-  val s2_disparity = Vec.fill(nWays){Bool()}          // ECC error in stage 2
- 
-  for (i <- 0 until nWays)
+  val s2_disparity = Vec.fill(nWays){Bool()}          // ECC error in stage 2 
+  for (i <- 0 until nWays)                            // when ECC error, invalidate the cache block
     when (s2_valid && s2_disparity(i)) { vb_array := vb_array.bitSet(Cat(UInt(i), s2_idx), Bool(false)) }
 
   val s1_tag_match = Vec.fill(nWays){Bool()}
