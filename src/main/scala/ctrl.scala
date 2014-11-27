@@ -784,7 +784,7 @@ class Control extends Module
   io.dmem.req.bits.kill := killm_common || mem_xcpt
   io.dmem.req.bits.cmd  := ex_reg_mem_cmd
   io.dmem.req.bits.typ  := ex_reg_mem_type
-  io.dmem.req.bits.phys := Bool(false)
+  io.dmem.req.bits.phys := Bool(false) // TLB not passthrough, always use VM for data?
 
   io.rocc.cmd.valid := wb_rocc_val
   io.rocc.exception := wb_reg_xcpt && sr.er
