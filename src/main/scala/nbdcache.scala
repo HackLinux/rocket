@@ -167,24 +167,24 @@ class WritebackReq extends L1HellaCacheBundle {
 // miss status holding register
 class MSHR(id: Int) extends L1HellaCacheModule {
   val io = new Bundle {
-    val req_pri_val    = Bool(INPUT)                      // := alloc_arb.io.in(i).ready
-    val req_pri_rdy    = Bool(OUTPUT)                     // := state === s_invalid
-    val req_sec_val    = Bool(INPUT)                      // := io.req.valid && sdq_rdy && tag_match
-    val req_sec_rdy    = Bool(OUTPUT)                     // := sec_rdy && rpq.io.enq.ready
-    val req_bits       = new MSHRReqInternal().asInput    // := io.req.bits
+    val req_pri_val    = Bool(INPUT)                      // primary miss request valid
+    val req_pri_rdy    = Bool(OUTPUT)                     // ready for primary miss request
+    val req_sec_val    = Bool(INPUT)                      // secondary miss request valid
+    val req_sec_rdy    = Bool(OUTPUT)                     // ready for secondary miss request
+    val req_bits       = new MSHRReqInternal().asInput
 
-    val idx_match       = Bool(OUTPUT)                    // req_idx === io.req_bits.addr(untagBits-1,blockOffBits)
-    val tag             = Bits(OUTPUT, tagBits)           // req.addr >> untagBits
+    val idx_match       = Bool(OUTPUT)
+    val tag             = Bits(OUTPUT, tagBits)
 
     val mem_req  = Decoupled(new Acquire)                 // send Acquire message to memory 
-    val mem_resp = new DataWriteReq().asOutput            // request to write back data to cache?
+    val mem_resp = new DataWriteReq().asOutput            // write to data array in dcache
     val meta_read = Decoupled(new L1MetaReadReq)
     val meta_write = Decoupled(new L1MetaWriteReq)
-    val replay = Decoupled(new ReplayInternal)
+    val replay = Decoupled(new ReplayInternal)            // request to dcache s0 to replay the missed dcache request 
     val mem_grant = Valid(new LogicalNetworkIO(new Grant)).flip // memory Grant response
     val mem_finish = Decoupled(new LogicalNetworkIO(new Finish)) // memory finish message
-    val wb_req = Decoupled(new WritebackReq)
-    val probe_rdy = Bool(OUTPUT)
+    val wb_req = Decoupled(new WritebackReq)              // write back a data to NoC
+    val probe_rdy = Bool(OUTPUT)                          // this MSHR is available for probe
   }
 
   // invalid:          initial state, MSHR not in use
@@ -195,7 +195,7 @@ class MSHR(id: Int) extends L1HellaCacheModule {
   // refill_resp:      do the refill, then write meta
   // meta_write_req:   update meta
   // meta_write_resp:  -> drain_rpq, somehow related to tag RAW hazard
-  // drain_rpq:        wait until !rpq.io.deq.valid, then idle
+  // drain_rpq:        wait to replay all cache operations
 
   val s_invalid :: s_wb_req :: s_wb_resp :: s_meta_clear :: s_refill_req :: s_refill_resp :: s_meta_write_req :: s_meta_write_resp :: s_drain_rpq :: Nil = Enum(UInt(), 9)
   val state = Reg(init=s_invalid)
@@ -227,7 +227,7 @@ class MSHR(id: Int) extends L1HellaCacheModule {
                                   //                      -> coh.state
 
   val rpq = Module(new Queue(new ReplayInternal, params(ReplayQueueDepth)))
-  rpq.io.enq.valid := (io.req_pri_val && io.req_pri_rdy || io.req_sec_val && sec_rdy) && !isPrefetch(req_cmd)
+  rpq.io.enq.valid := (io.req_pri_val && io.req_pri_rdy || io.req_sec_val && sec_rdy) && !isPrefetch(req_cmd) // !isPrefetch(req_cmd), prefetch doesnot need replay in dcache (s0 to s2)
   rpq.io.enq.bits := io.req_bits
   rpq.io.deq.ready := io.replay.ready && state === s_drain_rpq || state === s_invalid
 
@@ -284,7 +284,7 @@ class MSHR(id: Int) extends L1HellaCacheModule {
   }
 
   val ackq = Module(new Queue(new LogicalNetworkIO(new Finish), 1))
-  ackq.io.enq.valid := (wb_done || refill_done) && co.requiresAckForGrant(io.mem_grant.bits.payload)
+  ackq.io.enq.valid := (wb_done || refill_done) && co.requiresAckForGrant(io.mem_grant.bits.payload) // ??? state machine does not wait for Finish
   ackq.io.enq.bits.payload.master_xact_id := io.mem_grant.bits.payload.master_xact_id
   ackq.io.enq.bits.header.dst := io.mem_grant.bits.header.src
   val can_finish = state === s_invalid || state === s_refill_req || state === s_refill_resp
@@ -300,8 +300,8 @@ class MSHR(id: Int) extends L1HellaCacheModule {
   io.req_sec_rdy := sec_rdy && rpq.io.enq.ready
 
   val meta_hazard = Reg(init=UInt(0,2))
-  when (meta_hazard != UInt(0)) { meta_hazard := meta_hazard + 1 }
-  when (io.meta_write.fire()) { meta_hazard := 1 }
+  when (meta_hazard != UInt(0)) { meta_hazard := meta_hazard + 1 } // ???
+  when (io.meta_write.fire()) { meta_hazard := 1 }                 // ???
   io.probe_rdy := !idx_match || (state != s_wb_req && state != s_wb_resp && state != s_meta_clear && meta_hazard === 0)
 
   io.meta_write.valid := state === s_meta_write_req || state === s_meta_clear
