@@ -78,9 +78,9 @@ class Term(val value: BigInt, val mask: BigInt = 0)
   def < (that: Term) = value < that.value || value == that.value && mask < that.mask
   def similar(x: Term) = {
     val diff = value - x.value
-    mask == x.mask && value > x.value && (diff & diff-1) == 0         // ws: smart!   same masks and this > x and only 1-bit different 
+    mask == x.mask && value > x.value && (diff & diff-1) == 0
   }
-  def merge(x: Term) = { 
+  def merge(x: Term) = {
     prime = false
     x.prime = false
     val bit = value - x.value

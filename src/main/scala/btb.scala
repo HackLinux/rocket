@@ -75,7 +75,7 @@ class BHT(nbht: Int) {
     when (mispredict) { history := Cat(taken, d.history(nbhtbits-1,1)) }
   }
 
-  private val table = Mem(UInt(width = 2), nbht) // fixed to 2-bit history?
+  private val table = Mem(UInt(width = 2), nbht) // 2-bit history
   val history = Reg(UInt(width = nbhtbits))
 }
 
@@ -134,7 +134,7 @@ class BTB extends Module with BTBParameters {
     val p = page(addr)
     Vec(pages.map(_ === p)).toBits & pageValid
   }
-  private def tagMatch(addr: UInt, pgMatch: UInt): UInt = { // wether addr matches an idx and pgMatch matches a page
+  private def tagMatch(addr: UInt, pgMatch: UInt): UInt = { // whether addr matches an idx and pgMatch matches a page
     val idx = addr(matchBits-1,0)
     val idxMatch = idxs.map(_ === idx).toBits
     val idxPageMatch = idxPagesOH.map(_ & pgMatch).map(_.orR).toBits

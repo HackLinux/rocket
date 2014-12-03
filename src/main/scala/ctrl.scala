@@ -86,7 +86,6 @@ abstract trait DecodeConstants
   val table: Array[(UInt, List[UInt])]
 }
 
-
 object XDecode extends DecodeConstants
 {
   val table = Array(
