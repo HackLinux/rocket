@@ -254,6 +254,7 @@ object CSRs {
   val reset = 0x51d        // [privileged when R/W in User mode] reset the Status register
   val tohost = 0x51e       // [privileged when R/W in User mode] test output register
   val fromhost = 0x51f     // [privileged when R/W in User mode] test input register
+  val tagbr = 0x520        // [privileged when R/W in User mode] base address for tag memory partition
   val cycle = 0xc00        // [privileged when W] time
   val time = 0xc01         // [privileged when W] time
   val instret = 0xc02      // [privileged when W]
@@ -302,6 +303,7 @@ object CSRs {
     res += reset
     res += tohost
     res += fromhost
+    res += tagbr
     res += cycle
     res += time
     res += instret

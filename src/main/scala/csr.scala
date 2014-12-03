@@ -44,7 +44,8 @@ class CSRFileIO extends Bundle {
   }
 
   val status = new Status().asOutput
-  val ptbr = UInt(OUTPUT, params(PAddrBits))
+  val ptbr = UInt(OUTPUT, params(PAddrBits))                // page table base address
+  val tagbr = UInt(OUTPUT, params(PAddrBits))               // the base field of tag memory partition
   val evec = UInt(OUTPUT, params(VAddrBits)+1)
   val exception = Bool(INPUT)
   val retire = UInt(INPUT, log2Up(1+params(RetireWidth)))
@@ -74,7 +75,8 @@ class CSRFile extends Module
   val reg_fromhost = Reg(init=Bits(0, params(XprLen)))
   val reg_sup0 = Reg(Bits(width = params(XprLen)))
   val reg_sup1 = Reg(Bits(width = params(XprLen)))
-  val reg_ptbr = Reg(UInt(width = params(PAddrBits)))
+  val reg_ptbr = Reg(UInt(width = params(PAddrBits)))       //  page table base address register
+  val reg_tagbr = Reg(UInt(width = params(PAddrBits)))      //  register for the base field of the tag memory partition
   val reg_stats = Reg(init=Bool(false))
   val reg_status = Reg(new Status) // reset down below
   val reg_time = WideCounter(params(XprLen))
@@ -125,6 +127,7 @@ class CSRFile extends Module
   io.fatc := wen && decoded_addr(CSRs.fatc)
   io.evec := Mux(io.exception, reg_evec.toSInt, reg_epc).toUInt
   io.ptbr := reg_ptbr
+  io.tagbr := reg_tagbr
 
   when (io.badvaddr_wen) {
     val wdata = io.rw.wdata
@@ -160,6 +163,7 @@ class CSRFile extends Module
 
   val read_impl = Bits(2)
   val read_ptbr = reg_ptbr(params(PAddrBits)-1, params(PgIdxBits)) << UInt(params(PgIdxBits))
+  val read_tagbr = reg_tagbr(params(PAddrBits)-1, params(TagOffsetBits)) << UInt(params(TagOffsetBits))
 
   val read_mapping = collection.mutable.LinkedHashMap[Int,Bits](
     CSRs.fflags -> (if (!params(BuildFPU).isEmpty) reg_fflags else UInt(0)),
@@ -173,6 +177,7 @@ class CSRFile extends Module
     CSRs.epc -> reg_epc,                 // exception PC, store the PC of exceptioned inst 
     CSRs.badvaddr -> reg_badvaddr,
     CSRs.ptbr -> read_ptbr,
+    CSRs.tagbr -> read_tagbr,            // read the tag base address
     CSRs.asid -> UInt(0),
     CSRs.count -> reg_time,
     CSRs.compare -> reg_compare,
@@ -221,6 +226,8 @@ class CSRFile extends Module
     when (decoded_addr(CSRs.sup0))     { reg_sup0 := wdata }
     when (decoded_addr(CSRs.sup1))     { reg_sup1 := wdata }
     when (decoded_addr(CSRs.ptbr))     { reg_ptbr := Cat(wdata(params(PAddrBits)-1, params(PgIdxBits)), Bits(0, params(PgIdxBits))).toUInt }
+    when (decoded_addr(CSRs.tagbr))    { teg_tagbr := Cat(wdata(params(PAddrBits)-1, params(TagOffsetBits)), Bits(0, params(TagOffsetBits))).toUIntwdata }
+                                                            // write the tag base address
     when (decoded_addr(CSRs.stats))    { reg_stats := wdata(0) }
   }
 
