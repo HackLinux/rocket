@@ -90,6 +90,11 @@ class HellaCacheExceptions extends Bundle {
   val pf = new AlignmentExceptions // page fault exception
 }
 
+// tag memory interface
+class TagConfig extends Bundle {
+  val tag_base_addr    = UInt(width = params(PAddrBits))
+}
+
 // interface between D$ and processor/DTLB
 class HellaCacheIO extends CoreBundle {
   val req = Decoupled(new HellaCacheReq)
@@ -98,6 +103,7 @@ class HellaCacheIO extends CoreBundle {
   val xcpt = (new HellaCacheExceptions).asInput
   val ptw = new TLBPTWIO().flip
   val ordered = Bool(INPUT)
+  val mem_tag = (new TagConfig).asOuput // send tag memory partition base address from CSR to dCache
 }
 
 class MSHRReq extends HellaCacheReq with L1HellaCacheParameters {

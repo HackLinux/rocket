@@ -190,6 +190,8 @@ class Datapath extends Module
   io.ptw.sret := io.ctrl.sret
   io.ptw.status := pcr.io.status
 
+  io.dmem.mem_tag.tag_base_addr <> pcr.io.tagbr
+
   // memory stage
   mem_reg_kill := ex_reg_kill
   when (!ex_reg_kill) {
