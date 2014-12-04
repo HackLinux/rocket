@@ -756,13 +756,18 @@ class HellaCache extends L1HellaCacheModule {
   when (s2_recycle) {
     s1_req := s2_req
   }
-  val s1_addr = Cat(dtlb.io.resp.ppn, s1_req.addr(pgIdxBits-1,0))
+
+  val dtlb_result = Cat(dtlb.io.resp.ppn, s1_req.addr(pgIdxBits-1,0))
+  val s1_addr = if(s1_req.cmd == M_XLTAG || s1_req.cmd == M_XSTAG){   // L/S memory tag
+    Cat(io.mem_tag.tag_base_addr(PAddrBits-1, TagParSize), tlb_result(PAddrBits, tagOffsetBits), Bits(0, WordOffBits))
+  } else tlb_result
 
   when (s1_clk_en) { // there is a request for metadata read
     s2_req.kill := s1_req.kill
     s2_req.typ := s1_req.typ
-    s2_req.phys := s1_req.phys
-    s2_req.addr := s1_addr
+    //s2_req.phys := s1_req.phys
+    s2_req.phys := Bool(true)
+    s2_req.addr := dtlb_result    // support tag L/S: store original req addr for replay but use shifted address for Meta/data read
     when (s1_write) {
       s2_req.data := Mux(s1_replay, mshrs.io.replay.bits.data, io.cpu.req.bits.data)
     }
@@ -801,12 +806,14 @@ class HellaCache extends L1HellaCacheModule {
 
   // tag read for new requests
   metaReadArb.io.in(4).valid := io.cpu.req.valid
-  metaReadArb.io.in(4).bits.idx := io.cpu.req.bits.addr >> blockOffBits         // set index
+  //metaReadArb.io.in(4).bits.idx := io.cpu.req.bits.addr >> blockOffBits         // set index
+  metaReadArb.io.in(4).bits.idx := dtlb_result >> blockOffBits
   when (!metaReadArb.io.in(4).ready) { io.cpu.req.ready := Bool(false) }
 
   // data read for new requests
   readArb.io.in(3).valid := io.cpu.req.valid
-  readArb.io.in(3).bits.addr := io.cpu.req.bits.addr
+  //readArb.io.in(3).bits.addr := io.cpu.req.bits.addr
+  readArb.io.in(3).bits.addr := dtlb_result >> blockOffBits
   readArb.io.in(3).bits.way_en := SInt(-1)
   when (!readArb.io.in(3).ready) { io.cpu.req.ready := Bool(false) }
 
