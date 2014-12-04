@@ -322,7 +322,7 @@ Object TagDecode extends DecodeConstants
                 //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | | amo
                 //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | | |
     LTAG->      List(xpr64,N,N,N,N,N,N,Y,A2_IMM, A1_RS1, IMM_I, DW_XPR,FN_ADD,   Y,M_XLTAG,  MT_D, N,N,Y,CSR.N,N,N,N,N,N,N),
-    STAG->      List(xpr64,N,N,N,N,N,Y,Y,A2_IMM, A1_RS1, IMM_S, DW_XPR,FN_ADD,   Y,M_XSTAG,  MT_D, N,N,N,CSR.N,N,N,N,N,N,Y))
+    STAG->      List(xpr64,N,N,N,N,N,Y,Y,A2_IMM, A1_RS1, IMM_S, DW_XPR,FN_ADD,   Y,M_XSTAG,  MT_D, N,N,N,CSR.N,N,N,N,N,N,N))
 }
 
 class Control extends Module

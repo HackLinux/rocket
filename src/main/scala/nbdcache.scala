@@ -833,6 +833,13 @@ class HellaCache extends L1HellaCacheModule {
   val wdata_encoded = (0 until rowWords).map(i => code.encode(writeArb.io.out.bits.data(coreDataBits*(i+1)-1,coreDataBits*i)))
   data.io.write.bits.data := Vec(wdata_encoded).toBits
 
+  // memory tag
+  val memTag = Module(new memTagArray)
+  val memTagReadArb = Module(new Arbiter(new MemTagReadReq, 4))
+  val memTagWriteArb = Module(new Arbiter(new MemTagWriteReq, 2))
+  memTag.io.write <> memTagWriteArb.io.out
+  memTag.io.read  <> memTagReadArb.io.out
+
   // tag read for new requests
   metaReadArb.io.in(4).valid := io.cpu.req.valid
   metaReadArb.io.in(4).bits.idx := io.cpu.req.bits.addr >> blockOffBits         // set index
@@ -844,12 +851,21 @@ class HellaCache extends L1HellaCacheModule {
   readArb.io.in(3).bits.way_en := SInt(-1)
   when (!readArb.io.in(3).ready) { io.cpu.req.ready := Bool(false) }
 
+  // memory tag read for new requests
+  memTagReadArb.io.in(3).valid := io.cpu.req.valid
+  memTagReadArb.io.in(3).bits.addr := io.cpu.req.bits.addr
+  memTagReadArb.io.in(3).bits.way_en := SInt(-1)
+  when (!readArb.io.in(3).ready) { io.cpu.req.ready := Bool(false) }
+
   // recycled requests
   metaReadArb.io.in(0).valid := s2_recycle
   metaReadArb.io.in(0).bits.idx := s2_req.addr >> blockOffBits
   readArb.io.in(0).valid := s2_recycle
   readArb.io.in(0).bits.addr := s2_req.addr
   readArb.io.in(0).bits.way_en := SInt(-1)
+  memTagReadArb.io.in(0).valid := s2_recycle
+  memTagReadArb.io.in(0).bits.addr := s2_req.addr
+  memTagReadArb.io.in(0).bits.way_en := SInt(-1)
 
   // tag check and way muxing
   def wayMap[T <: Data](f: Int => T) = Vec((0 until nWays).map(f))
@@ -886,6 +902,7 @@ class HellaCache extends L1HellaCacheModule {
   }
   when (io.cpu.ptw.sret) { lrsc_count := 0 }
 
+  // get the row of data from data array
   val s2_data = Vec.fill(nWays){Bits(width = encRowBits)}
   for (w <- 0 until nWays) {
     val regs = Vec.fill(rowWords){Reg(Bits(width = encDataBits))}
@@ -900,9 +917,24 @@ class HellaCache extends L1HellaCacheModule {
   val s2_data_decoded = (0 until rowWords).map(i => code.decode(s2_data_muxed(encDataBits*(i+1)-1,encDataBits*i)))
   val s2_data_corrected = Vec(s2_data_decoded.map(_.corrected)).toBits
   val s2_data_uncorrected = Vec(s2_data_decoded.map(_.uncorrected)).toBits
-  val s2_word_idx = if(doNarrowRead) UInt(0) else s2_req.addr(log2Up(rowWords*coreDataBytes)-1,3)
+  val s2_word_idx = if(doNarrowRead) UInt(0) else s2_req.addr(log2Up(rowWords*coreDataBytes)-1,3) // why always 3?
   val s2_data_correctable = Vec(s2_data_decoded.map(_.correctable)).toBits()(s2_word_idx)
   
+  // get the row of memory tags from the tag array
+  val s2_mem_tag = Vec.fill(nWays){Bits(width = memTagBits)}
+  for (w <- 0 until nWays) {
+    val regs = Vec.fill(rowWords){Reg(Bits(width = memTagBits))}
+    val en1 = s1_clk_en && s1_tag_eq_way(w)
+    for (i <- 0 until regs.size) {
+      val en = en1 && ((Bool(i == 0) || !Bool(doNarrowRead)) || s1_writeback)
+      when (en) { regs(i) := memTag.io.resp(w) >> memTagBits*i }
+    }
+    s2_mem_tag(w) := regs.toBits
+  }
+  val s2_mem_tag_muxed = Mux1H(s2_tag_match_way, s2_mem_tag)
+  val s2_mem_tag_decoded = (0 until rowWords).map(i => s2_mem_tag_muxed(memTagBits*(i+1)-1,memTagBits*i))
+
+
   // store/amo hits
   s3_valid := (s2_valid_masked && s2_hit || s2_replay) && !s2_sc_fail && isWrite(s2_req.cmd)
   val amoalu = Module(new AMOALU)
@@ -917,8 +949,17 @@ class HellaCache extends L1HellaCacheModule {
                                                 s3_req.addr(rowOffBits-1,offsetlsb).toUInt
                                               else UInt(0))
   writeArb.io.in(0).bits.data := Fill(rowWords, s3_req.data)
-  writeArb.io.in(0).valid := s3_valid
+  writeArb.io.in(0).valid := s3_valid && !isTag(s3_req.cmd)
   writeArb.io.in(0).bits.way_en :=  s3_way
+
+  // write mem tag
+  memTagWriteArb.io.in(0).bits.addr := s3_req.addr
+  memTagWriteArb.io.in(0).bits.wmask := UInt(1) << (if(rowOffBits > offsetlsb) 
+                                                s3_req.addr(rowOffBits-1,offsetlsb).toUInt
+                                              else UInt(0))
+  memTagWriteArb.io.in(0).bits.data := Fill(rowWords, s3_req.data(memTagBits-1,0))
+  memTagWriteArb.io.in(0).valid := s3_valid && isTag(s3_req.cmd)
+  memTagWriteArb.io.in(0).bits.way_en :=  s3_way
 
   // replacement policy
   val replacer = params(Replacer)()
@@ -942,6 +983,9 @@ class HellaCache extends L1HellaCacheModule {
   readArb.io.in(1).valid := mshrs.io.replay.valid
   readArb.io.in(1).bits := mshrs.io.replay.bits
   readArb.io.in(1).bits.way_en := SInt(-1)
+  memTagReadArb.io.in(1).valid := mshrs.io.replay.valid
+  memTagReadArb.io.in(1).bits := mshrs.io.replay.bits
+  memTagReadArb.io.in(1).bits.way_en := SInt(-1)
   mshrs.io.replay.ready := readArb.io.in(1).ready
   s1_replay := mshrs.io.replay.valid && readArb.io.in(1).ready // arbiter allows MSHR to replay
   metaReadArb.io.in(1) <> mshrs.io.meta_read
@@ -976,6 +1020,10 @@ class HellaCache extends L1HellaCacheModule {
   writeArb.io.in(1).bits := mshrs.io.mem_resp
   writeArb.io.in(1).bits.wmask := SInt(-1)
   writeArb.io.in(1).bits.data := refill.bits.payload.data(encRowBits-1,0)
+  memTagWriteArb.io.in(1).valid := refill.valid && doRefill(refill.bits.payload)
+  memTagWriteArb.io.in(1).bits := mshrs.io.mem_resp
+  memTagWriteArb.io.in(1).bits.wmask := SInt(-1)
+  memTagWriteArb.io.in(1).bits.data := UInt(0)          // ignore tag refill, simply set it as 0 
   readArb.io.out.ready := !refill.valid || refill.ready // insert bubble if refill gets blocked
   readArb.io.out <> data.io.read
 
@@ -996,23 +1044,40 @@ class HellaCache extends L1HellaCacheModule {
     ((s2_valid_masked || s2_replay) && !s2_sc_fail, s2_req, amoalu.io.out),
     (s3_valid, s3_req, s3_req.data),
     (s4_valid, s4_req, s4_req.data)
-  ).map(r => (r._1 && (s1_addr >> wordOffBits === r._2.addr >> wordOffBits) && isWrite(r._2.cmd), r._3))
+  ).map(r => (r._1 && (s1_addr >> wordOffBits === r._2.addr >> wordOffBits) && isWriteNonTag(r._2.cmd), r._3))
+                                                  // s1_addr and s(2,3,4)_addr in the same word
+                                                  // and s(2,3,4) is write
+                                                  // assume data bypass from s(2,3,4) to s1
+  val bypassesTag = List(
+    ((s2_valid_masked || s2_replay) && !s2_sc_fail, s2_req, amoalu.io.out),
+    (s3_valid, s3_req, s3_req.data),
+    (s4_valid, s4_req, s4_req.data)
+  ).map(r => (r._1 && (s1_addr >> wordOffBits === r._2.addr >> wordOffBits) && isWrite(r._2.cmd) && isTag(r._2.cmd), r._3))
                                                   // s1_addr and s(2,3,4)_addr in the same word
                                                   // and s(2,3,4) is write
                                                   // assume data bypass from s(2,3,4) to s1
   val s2_store_bypass_data = Reg(Bits(width = coreDataBits))
+  val s2_store_bypass_data_tag = Reg(Bits(width = coreDataBits))
   val s2_store_bypass = Reg(Bool())
+  val s2_store_bypass_tag = Reg(Bool())
   when (s1_clk_en) {
     s2_store_bypass := false
+    s2_store_bypass_tag := false
     when (bypasses.map(_._1).reduce(_||_)) {
       s2_store_bypass_data := PriorityMux(bypasses)
       s2_store_bypass := true
+    }
+    when (bypassesTag.map(_._1).reduce(_||_)) {
+      s2_store_bypass_data_tag := PriorityMux(bypassesTag)
+      s2_store_bypass_tag := true
     }
   }
 
   // load data subword mux/sign extension
   val s2_data_word_prebypass = s2_data_uncorrected >> Cat(s2_word_idx, Bits(0,log2Up(coreDataBits)))
-  val s2_data_word = Mux(s2_store_bypass, s2_store_bypass_data, s2_data_word_prebypass)
+  val s2_data_word = Mux(isTag(s2_req.cmd), 
+    Mux(s2_store_bypass_tag, s2_store_bypass_data_tag, s2_data_word_prebypass), 
+    Mux(s2_store_bypass, s2_store_bypass_data, s2_data_word_prebypass)
   val loadgen = new LoadGen(s2_req.typ, s2_req.addr, s2_data_word, s2_sc)
 
   amoalu.io := s2_req
@@ -1152,10 +1217,6 @@ class SimpleHellaCacheIF extends Module
 // Write back:    R    PPN
 // Core:          R/W  VPN/PPN
 
-
-// isRead():     cmd === M_XRD || cmd === M_XLR || isAMO(cmd)
-// isWrite():    cmd === M_XWR || cmd === M_XSC || isAMO(cmd)
-// isPrefetch(): cmd === M_PFR || cmd === M_PFW
 
 // stage 0:
 //   metaReadArb allows a source to read metaDataArray
