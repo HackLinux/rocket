@@ -20,6 +20,7 @@ abstract trait L1HellaCacheParameters extends L1CacheParameters {
   val doNarrowRead = coreDataBits * nWays % rowBits == 0
   val encDataBits = code.width(coreDataBits)
   val encRowBits = encDataBits*rowWords
+  val memTagBits = params(TagBits)
 }
 
 abstract class L1HellaCacheBundle extends Bundle with L1HellaCacheParameters
@@ -124,6 +125,13 @@ class DataReadReq extends L1HellaCacheBundle {
 class DataWriteReq extends DataReadReq {
   val wmask  = Bits(width = rowWords)
   val data   = Bits(width = encRowBits)
+}
+
+// read and write request for Memory Tags
+class MemTagReadReq extends DataReadReq
+class MemTagWriteReq extends MemTagReadReq {
+  val wmask  = Bits(width = rowWords)
+  val data   = Bits(width = memTagBits)
 }
 
 class L1MetaReadReq extends MetaReadReq {
@@ -645,6 +653,30 @@ class DataArray extends L1HellaCacheModule {
   io.write.ready := Bool(true)
 }
 
+// A Memory Tag Array side by side with the Data Array
+class MemTagArray extends L1HellaCacheModule {
+  val io = new Bundle {
+    val read = Decoupled(new MemTagReadReq).flip
+    val write = Decoupled(new MemTagWriteReq).flip
+    val resp = Vec.fill(nWays){Bits(OUTPUT, memTagBits)}
+  }
+
+  // do not handl doNarrowRead at first
+  require(doNarrowRead == false)
+
+  val wmask = FillInterleaved(memTagBits, io.write.bits.wmask)
+  for (w <- 0 until nWays) {
+    val array = Mem(Bits(width=memTageBits), nSets*refillCycles, seqRead = true)
+    when (io.write.bits.way_en(w) && io.write.valid) {
+      array.write(waddr, io.write.bits.data, wmask)
+    }
+    io.resp(w) := array(RegEnable(raddr, io.read.bits.way_en(w) && io.read.valid))
+  }
+
+  io.read.ready := Bool(true)
+  io.write.ready := Bool(true)
+}
+
 // automatic operation ALU
 class AMOALU extends L1HellaCacheModule {
   val io = new Bundle {
@@ -687,6 +719,7 @@ class AMOALU extends L1HellaCacheModule {
   io.out := wmask & out | ~wmask & io.lhs
 }
 
+// Physically tagged and virtually indexed cache
 class HellaCache extends L1HellaCacheModule {
   val io = new Bundle {
     val cpu = (new HellaCacheIO).flip
@@ -1114,10 +1147,10 @@ class SimpleHellaCacheIF extends Module
 
 // requestors
 // recycle:       R/W  VPN/PPN
-// MSHR:          R/W  VPN/PPN?
+// MSHR:          R/W  PPN
 // Prober:        R    PPN
 // Write back:    R    PPN
-// Core:          R/W  VPN/PPN?
+// Core:          R/W  VPN/PPN
 
 
 // isRead():     cmd === M_XRD || cmd === M_XLR || isAMO(cmd)
