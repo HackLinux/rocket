@@ -310,7 +310,7 @@ object RoCCDecode extends DecodeConstants
     CUSTOM3_RD_RS1_RS2->List(Y,    N,Y,N,N,N,Y,Y,A2_ZERO,A1_RS1, IMM_X, DW_XPR,FN_ADD,   N,M_X,      MT_X, N,N,Y,CSR.N,N,N,N,N,N,N))
 }
 
-Object TagDecode extends DecodeConstants
+object TagDecode extends DecodeConstants
 {
   val table = Array(
                 //               jal                                                                           fence.i
@@ -338,7 +338,7 @@ class Control extends Module
   var decode_table = XDecode.table
   if (!params(BuildFPU).isEmpty) decode_table ++= FDecode.table
   if (!params(BuildRoCC).isEmpty) decode_table ++= RoCCDecode.table
-  if (!params(BuildTag)) decode_table ++=TagDecode.table
+  if (params(BuildTag)) decode_table ++= TagDecode.table
 
   val cs = DecodeLogic(io.dpath.inst, XDecode.decode_default, decode_table)
   

@@ -11,6 +11,10 @@ case object ReplayQueueDepth extends Field[Int]
 case object NMSHRs extends Field[Int]
 case object LRSCCycles extends Field[Int]
 case object NDTLBEntries extends Field[Int]
+case object BuildTag extends Field[Bool]
+case object TagBits extends Field[Int]
+case object TagOffsetBits extends Field[Int]
+case object TagParSize extends Field[Int]
 
 abstract trait L1HellaCacheParameters extends L1CacheParameters {
   val indexmsb = untagBits-1
@@ -104,7 +108,7 @@ class HellaCacheIO extends CoreBundle {
   val xcpt = (new HellaCacheExceptions).asInput
   val ptw = new TLBPTWIO().flip
   val ordered = Bool(INPUT)
-  val mem_tag = (new TagConfig).asOuput // send tag memory partition base address from CSR to dCache
+  val mem_tag = (new TagConfig).asOutput // send tag memory partition base address from CSR to dCache
 }
 
 class MSHRReq extends HellaCacheReq with L1HellaCacheParameters {
@@ -131,7 +135,7 @@ class DataWriteReq extends DataReadReq {
 class MemTagReadReq extends DataReadReq
 class MemTagWriteReq extends MemTagReadReq {
   val wmask  = Bits(width = rowWords)
-  val data   = Bits(width = memTagBits)
+  val data   = Bits(width = memTagBits * rowWords)
 }
 
 class L1MetaReadReq extends MetaReadReq {
@@ -286,7 +290,7 @@ class MSHR(id: Int) extends L1HellaCacheModule {
   }
 
   val ackq = Module(new Queue(new LogicalNetworkIO(new Finish), 1))
-  ackq.io.enq.valid := (wb_done || refill_done) && co.requiresAckForGrant(io.mem_grant.bits.payload) // ??? state machine does not wait for Finish
+  ackq.io.enq.valid := (wb_done || refill_done) && co.requiresAckForGrant(io.mem_grant.bits.payload.g_type) // ??? state machine does not wait for Finish
   ackq.io.enq.bits.payload.master_xact_id := io.mem_grant.bits.payload.master_xact_id
   ackq.io.enq.bits.header.dst := io.mem_grant.bits.header.src
   val can_finish = state === s_invalid || state === s_refill_req || state === s_refill_resp
@@ -658,19 +662,44 @@ class MemTagArray extends L1HellaCacheModule {
   val io = new Bundle {
     val read = Decoupled(new MemTagReadReq).flip
     val write = Decoupled(new MemTagWriteReq).flip
-    val resp = Vec.fill(nWays){Bits(OUTPUT, memTagBits)}
+    val resp = Vec.fill(nWays){Bits(OUTPUT, memTagBits*rowWords)}
   }
 
-  // do not handl doNarrowRead at first
-  require(doNarrowRead == false)
+  val waddr = io.write.bits.addr >> rowOffBits
+  val raddr = io.read.bits.addr >> rowOffBits
 
-  val wmask = FillInterleaved(memTagBits, io.write.bits.wmask)
-  for (w <- 0 until nWays) {
-    val array = Mem(Bits(width=memTageBits), nSets*refillCycles, seqRead = true)
-    when (io.write.bits.way_en(w) && io.write.valid) {
-      array.write(waddr, io.write.bits.data, wmask)
+  if (doNarrowRead) { // divide nWaya by rows (BANKs ?)
+    for (w <- 0 until nWays by rowWords) {
+      val wway_en = io.write.bits.way_en(w+rowWords-1,w)
+      val rway_en = io.read.bits.way_en(w+rowWords-1,w)
+      val resp = Vec.fill(rowWords){Bits(width = memTagBits*rowWords)}
+      val r_raddr = RegEnable(io.read.bits.addr, io.read.valid) // register the raddr
+      for (p <- 0 until resp.size) {
+        val array = Mem(Bits(width=memTagBits*rowWords), nSets*refillCycles, seqRead = true)
+        when (wway_en.orR && io.write.valid && io.write.bits.wmask(p)) { // why p not w + p
+          val data = Fill(rowWords, io.write.bits.data(memTagBits*(p+1)-1,memTagBits*p)) // not sure about this
+          val mask = FillInterleaved(memTagBits, wway_en)
+          array.write(waddr, data, mask)
+        }
+        resp(p) := array(RegEnable(raddr, rway_en.orR && io.read.valid))
+      }
+      for (dw <- 0 until rowWords) {
+        val r = Vec(resp.map(_(memTagBits*(dw+1)-1,memTagBits*dw))) // ???
+        val resp_mux =
+          if (r.size == 1) r
+          else Vec(r(r_raddr(rowOffBits-1,wordOffBits)), r.tail:_*)
+        io.resp(w+dw) := resp_mux.toBits // ???
+      }
     }
-    io.resp(w) := array(RegEnable(raddr, io.read.bits.way_en(w) && io.read.valid))
+  } else { // nWays < row
+    val wmask = FillInterleaved(memTagBits, io.write.bits.wmask)
+    for (w <- 0 until nWays) {
+      val array = Mem(Bits(width=memTagBits*rowWords), nSets*refillCycles, seqRead = true)
+      when (io.write.bits.way_en(w) && io.write.valid) {
+        array.write(waddr, io.write.bits.data, wmask)
+      }
+      io.resp(w) := array(RegEnable(raddr, io.read.bits.way_en(w) && io.read.valid))
+    }
   }
 
   io.read.ready := Bool(true)
@@ -834,8 +863,8 @@ class HellaCache extends L1HellaCacheModule {
   data.io.write.bits.data := Vec(wdata_encoded).toBits
 
   // memory tag
-  val memTag = Module(new memTagArray)
-  val memTagReadArb = Module(new Arbiter(new MemTagReadReq, 4))
+  val memTag = Module(new MemTagArray)
+  val memTagReadArb = Module(new Arbiter(new MemTagReadReq, 3))
   val memTagWriteArb = Module(new Arbiter(new MemTagWriteReq, 2))
   memTag.io.write <> memTagWriteArb.io.out
   memTag.io.read  <> memTagReadArb.io.out
@@ -852,10 +881,10 @@ class HellaCache extends L1HellaCacheModule {
   when (!readArb.io.in(3).ready) { io.cpu.req.ready := Bool(false) }
 
   // memory tag read for new requests
-  memTagReadArb.io.in(3).valid := io.cpu.req.valid
-  memTagReadArb.io.in(3).bits.addr := io.cpu.req.bits.addr
-  memTagReadArb.io.in(3).bits.way_en := SInt(-1)
-  when (!readArb.io.in(3).ready) { io.cpu.req.ready := Bool(false) }
+  memTagReadArb.io.in(2).valid := io.cpu.req.valid
+  memTagReadArb.io.in(2).bits.addr := io.cpu.req.bits.addr
+  memTagReadArb.io.in(2).bits.way_en := SInt(-1)
+  when (!readArb.io.in(2).ready) { io.cpu.req.ready := Bool(false) }
 
   // recycled requests
   metaReadArb.io.in(0).valid := s2_recycle
@@ -1076,8 +1105,8 @@ class HellaCache extends L1HellaCacheModule {
   // load data subword mux/sign extension
   val s2_data_word_prebypass = s2_data_uncorrected >> Cat(s2_word_idx, Bits(0,log2Up(coreDataBits)))
   val s2_data_word = Mux(isTag(s2_req.cmd), 
-    Mux(s2_store_bypass_tag, s2_store_bypass_data_tag, s2_data_word_prebypass), 
-    Mux(s2_store_bypass, s2_store_bypass_data, s2_data_word_prebypass)
+    Mux(s2_store_bypass_tag, s2_store_bypass_data_tag, s2_data_word_prebypass),
+    Mux(s2_store_bypass, s2_store_bypass_data, s2_data_word_prebypass))
   val loadgen = new LoadGen(s2_req.typ, s2_req.addr, s2_data_word, s2_sc)
 
   amoalu.io := s2_req
