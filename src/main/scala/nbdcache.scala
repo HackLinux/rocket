@@ -321,6 +321,7 @@ class MSHR(id: Int) extends L1HellaCacheModule {
   io.wb_req.bits.idx := req_idx
   io.wb_req.bits.way_en := req.way_en
   io.wb_req.bits.client_xact_id := Bits(id)
+  io.wb_req.bits.master_xact_id := Bits(0) // DNC
   io.wb_req.bits.r_type := co.getReleaseTypeOnVoluntaryWriteback()
 
   io.mem_req.valid := state === s_refill_req && ackq.io.enq.ready
@@ -607,6 +608,7 @@ class ProbeUnit extends L1HellaCacheModule {
   io.wb_req.bits.tag := req.addr >> UInt(idxBits)
   io.wb_req.bits.r_type := co.getReleaseTypeOnProbe(req, Mux(hit, line_state, co.clientMetadataOnFlush))
   io.wb_req.bits.client_xact_id := req.client_xact_id
+  io.wb_req.bits.master_xact_id := req.master_xact_id
 }
 
 class DataArray extends L1HellaCacheModule {
