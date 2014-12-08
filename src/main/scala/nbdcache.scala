@@ -952,7 +952,7 @@ class HellaCache extends L1HellaCacheModule {
   val s2_data_correctable = Vec(s2_data_decoded.map(_.correctable)).toBits()(s2_word_idx)
   
   // get the row of memory tags from the tag array
-  val s2_mem_tag = Vec.fill(nWays){Bits(width = memTagBits)}
+  val s2_mem_tag = Vec.fill(nWays){Bits(width = memTagBits*rowWords)}
   for (w <- 0 until nWays) {
     val regs = Vec.fill(rowWords){Reg(Bits(width = memTagBits))}
     val en1 = s1_clk_en && s1_tag_eq_way(w)
@@ -964,7 +964,7 @@ class HellaCache extends L1HellaCacheModule {
   }
   val s2_mem_tag_muxed = Mux1H(s2_tag_match_way, s2_mem_tag)
   val s2_mem_tag_decoded = (0 until rowWords).map(i => s2_mem_tag_muxed(memTagBits*(i+1)-1,memTagBits*i))
-
+  val s2_mem_tag_uncorrected = s2_mem_tag_decoded.toBits
 
   // store/amo hits
   s3_valid := (s2_valid_masked && s2_hit || s2_replay) && !s2_sc_fail && isWrite(s2_req.cmd)
@@ -1106,8 +1106,9 @@ class HellaCache extends L1HellaCacheModule {
 
   // load data subword mux/sign extension
   val s2_data_word_prebypass = s2_data_uncorrected >> Cat(s2_word_idx, Bits(0,log2Up(coreDataBits)))
+  val s2_data_tag_prebypass = (s2_mem_tag_uncorrected >> Cat(s2_word_idx, Bits(0, log2Up(memTagBits))))(memTagBits-1,0)
   val s2_data_word = Mux(isTag(s2_req.cmd), 
-    Mux(s2_store_bypass_tag, s2_store_bypass_data_tag, s2_data_word_prebypass),
+    Mux(s2_store_bypass_tag, s2_store_bypass_data_tag, s2_data_tag_prebypass),
     Mux(s2_store_bypass, s2_store_bypass_data, s2_data_word_prebypass))
   val loadgen = new LoadGen(s2_req.typ, s2_req.addr, s2_data_word, s2_sc)
 
