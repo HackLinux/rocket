@@ -8,6 +8,8 @@ import uncore.constants.MemoryOpConstants._
 import ALU._
 import Util._
 
+case object BuildTag extends Field[Bool]
+
 class CtrlDpathIO extends Bundle
 {
   // outputs to datapath
@@ -321,8 +323,8 @@ object TagDecode extends DecodeConstants
                 //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | fence
                 //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | | amo
                 //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | | |
-    LTAG->      List(xpr64,N,N,N,N,N,N,Y,A2_IMM, A1_RS1, IMM_I, DW_XPR,FN_ADD,   Y,M_XLTAG,  MT_D, N,N,Y,CSR.N,N,N,N,N,N,N),
-    STAG->      List(xpr64,N,N,N,N,N,Y,Y,A2_IMM, A1_RS1, IMM_S, DW_XPR,FN_ADD,   Y,M_XSTAG,  MT_D, N,N,N,CSR.N,N,N,N,N,N,N))
+    LTAG->      List(xpr64,N,N,N,N,N,N,Y,A2_IMM, A1_RS1, IMM_I, DW_XPR,FN_ADD,   Y,M_XLTAG,  MT_T, N,N,Y,CSR.N,N,N,N,N,N,N),
+    STAG->      List(xpr64,N,N,N,N,N,Y,Y,A2_IMM, A1_RS1, IMM_S, DW_XPR,FN_ADD,   Y,M_XSTAG,  MT_T, N,N,N,CSR.N,N,N,N,N,N,N))
 }
 
 class Control extends Module
