@@ -367,7 +367,7 @@ class MSHRFile extends L1HellaCacheModule {
   val sdq_alloc_id = PriorityEncoder(~sdq_val(params(StoreDataQueueDepth)-1,0))
   val sdq_rdy = !sdq_val.andR
   val sdq_enq = io.req.valid && io.req.ready && isWrite(io.req.bits.cmd)
-  val sdq = Mem(io.req.bits.data, params(StoreDataQueueDepth)) // what's the usage of this?
+  val sdq = Mem(io.req.bits.data, params(StoreDataQueueDepth)) // store the missed requests
   when (sdq_enq) { sdq(sdq_alloc_id) := io.req.bits.data }
 
   val idxMatch = Vec.fill(params(NMSHRs)){Bool()}
@@ -621,7 +621,7 @@ class DataArray extends L1HellaCacheModule {
   val waddr = io.write.bits.addr >> rowOffBits
   val raddr = io.read.bits.addr >> rowOffBits
 
-  if (doNarrowRead) { // divide nWaya by rows (BANKs ?)
+  if (doNarrowRead) { // multiple ways in each memory row
     for (w <- 0 until nWays by rowWords) {
       val wway_en = io.write.bits.way_en(w+rowWords-1,w)
       val rway_en = io.read.bits.way_en(w+rowWords-1,w)
@@ -629,7 +629,7 @@ class DataArray extends L1HellaCacheModule {
       val r_raddr = RegEnable(io.read.bits.addr, io.read.valid) // register the raddr
       for (p <- 0 until resp.size) {
         val array = Mem(Bits(width=encRowBits), nSets*refillCycles, seqRead = true)
-        when (wway_en.orR && io.write.valid && io.write.bits.wmask(p)) { // why p not w + p
+        when (wway_en.orR && io.write.valid && io.write.bits.wmask(p)) {
           val data = Fill(rowWords, io.write.bits.data(encDataBits*(p+1)-1,encDataBits*p))
           val mask = FillInterleaved(encDataBits, wway_en)
           array.write(waddr, data, mask)
@@ -637,14 +637,14 @@ class DataArray extends L1HellaCacheModule {
         resp(p) := array(RegEnable(raddr, rway_en.orR && io.read.valid))
       }
       for (dw <- 0 until rowWords) {
-        val r = Vec(resp.map(_(encDataBits*(dw+1)-1,encDataBits*dw))) // ???
+        val r = Vec(resp.map(_(encDataBits*(dw+1)-1,encDataBits*dw))) // read data from multiple memory rows
         val resp_mux =
           if (r.size == 1) r
-          else Vec(r(r_raddr(rowOffBits-1,wordOffBits)), r.tail:_*)
-        io.resp(w+dw) := resp_mux.toBits // ???
+          else Vec(r(r_raddr(rowOffBits-1,wordOffBits)), r.tail:_*) // put the target word to position 0
+        io.resp(w+dw) := resp_mux.toBits
       }
     }
-  } else { // nWays < row
+  } else { // nWays < row, save a row of data in each memory row
     val wmask = FillInterleaved(encDataBits, io.write.bits.wmask)
     for (w <- 0 until nWays) {
       val array = Mem(Bits(width=encRowBits), nSets*refillCycles, seqRead = true)
@@ -948,7 +948,7 @@ class HellaCache extends L1HellaCacheModule {
   val s2_data_decoded = (0 until rowWords).map(i => code.decode(s2_data_muxed(encDataBits*(i+1)-1,encDataBits*i)))
   val s2_data_corrected = Vec(s2_data_decoded.map(_.corrected)).toBits
   val s2_data_uncorrected = Vec(s2_data_decoded.map(_.uncorrected)).toBits
-  val s2_word_idx = if(doNarrowRead) UInt(0) else s2_req.addr(log2Up(rowWords*coreDataBytes)-1,3) // why always 3?
+  val s2_word_idx = if(doNarrowRead) UInt(0) else s2_req.addr(log2Up(rowWords*coreDataBytes)-1,3) 
   val s2_data_correctable = Vec(s2_data_decoded.map(_.correctable)).toBits()(s2_word_idx)
   
   // get the row of memory tags from the tag array
