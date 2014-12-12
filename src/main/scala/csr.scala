@@ -8,6 +8,9 @@ import Node._
 import uncore._
 import scala.math._
 
+case object TagOffsetBits extends Field[Int]
+case object TagParSize extends Field[Int]
+
 class Status extends Bundle {
   val ip = Bits(width = 8)       // interrupt sources 
   val im = Bits(width = 8)       // interrupt mask
