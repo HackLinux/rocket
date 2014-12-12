@@ -67,8 +67,8 @@ class LoadGen(typ: Bits, addr: Bits, dat: Bits, zero: Bool, tagWidth: Int)
   val halfShift = Mux(addr(1), word(31,16), word(15,0))
   val half = Cat(Mux(t.half, Fill(48, sign && halfShift(15)), word(63,16)), halfShift)
   val byteShift = Mux(zero, UInt(0), Mux(addr(0), half(15,8), half(7,0)))
-  val byte = Cat(Mux(zero || t.byte, Fill(56, sign && byteShift(7)), half(63,8)), byteShift)
-  val tag = Mux(t.tag, dat(63,0), Cat(Bits(0,64-tagWidth), dat(63+tagWidth, 64)))
+  val tag = Cat(Bits(0,64-tagWidth), dat(63+tagWidth, 64))
+  val byte = Mux(t.tag,  tag, Cat(Mux(zero || t.byte, Fill(56, sign && byteShift(7)), half(63,8)), byteShift))
 }
 
 class HellaCacheReq extends CoreBundle {
@@ -718,6 +718,12 @@ class HellaCache extends L1HellaCacheModule {
   require(paddrBits-blockOffBits == params(TLAddrBits) )
   require(untagBits <= pgIdxBits)
 
+  def insert_tag(mem_data: Bits): Bits = {
+    val raw_data = (0 until rowWords).map(i =>
+      Cat(Bits(0, memTagBits), mem_data((i+1)*coreDataBits-1, i*coreDataBits)))
+    Vec(raw_data).toBits
+  }
+
   val wb = Module(new WritebackUnit)
   val prober = Module(new ProbeUnit)
   val mshrs = Module(new MSHRFile)
@@ -737,6 +743,7 @@ class HellaCache extends L1HellaCacheModule {
 
   val s3_valid = Reg(init=Bool(false))
   val s3_req = Reg(io.cpu.req.bits.clone)
+  val s3_req_data = Reg(Bits(width=taggedDataBits))  // do not use the data in s2_req2 as tag will be lost 
   val s3_way = Reg(Bits())
 
   val s1_recycled = RegEnable(s2_recycle, s1_clk_en)
@@ -893,7 +900,12 @@ class HellaCache extends L1HellaCacheModule {
   val amoalu = Module(new AMOALU)
   when ((s2_valid || s2_replay) && (isWrite(s2_req.cmd) || s2_data_correctable)) {
     s3_req := s2_req
-    s3_req.data := Mux(s2_data_correctable, s2_data_corrected.toBits, amoalu.io.out)
+    // this seems to require doNarrowRead
+    // however this is not testable as there is no real ECC
+    // whithout doNarrowRead, s3_req_data is always assigned to the first word of s2_data_corrected
+    // the way match signal is not considered
+    //s3_req_data := Mux(s2_data_correctable, s2_data_corrected.toBits, amoalu.io.out)
+    s3_req_data := Mux(s2_data_correctable, s2_data_corrected(s2_word_idx), amoalu.io.out)
     s3_way := s2_tag_match_way
   }
 
@@ -901,7 +913,7 @@ class HellaCache extends L1HellaCacheModule {
   writeArb.io.in(0).bits.wmask := UInt(1) << (if(rowOffBits > offsetlsb) 
                                                 s3_req.addr(rowOffBits-1,offsetlsb).toUInt
                                               else UInt(0))
-  writeArb.io.in(0).bits.data := Fill(rowWords, s3_req.data)
+  writeArb.io.in(0).bits.data := Fill(rowWords, s3_req_data)
   writeArb.io.in(0).valid := s3_valid
   writeArb.io.in(0).bits.way_en :=  s3_way
 
@@ -948,12 +960,6 @@ class HellaCache extends L1HellaCacheModule {
   prober.io.mshr_rdy := mshrs.io.probe_rdy
 
   // refills
-  def insert_tag(mem_data: Bits): Bits = {
-    val raw_data = (0 until rowWords).map(i => 
-      Cat(Bits(0, memTagBits), mem_data((i+1)*coreDataBits-1, i*coreDataBits)))
-    Vec(raw_data).toBits
-  }
-
   def doRefill(g: Grant): Bool = co.messageUpdatesDataArray(g)
   val refill = if(refillCycles > 1) {
     val ser = Module(new FlowThroughSerializer(io.mem.grant.bits, refillCycles, doRefill))
@@ -985,10 +991,11 @@ class HellaCache extends L1HellaCacheModule {
   // store->load bypassing
   val s4_valid = Reg(next=s3_valid, init=Bool(false))
   val s4_req = RegEnable(s3_req, s3_valid && metaReadArb.io.out.valid) // ? need to read meta again? what's for?
+  val s4_req_data = RegEnable(s3_req_data, s3_valid && metaReadArb.io.out.valid)
   val bypasses = List(
     ((s2_valid_masked || s2_replay) && !s2_sc_fail, s2_req, amoalu.io.out),
-    (s3_valid, s3_req, s3_req.data),
-    (s4_valid, s4_req, s4_req.data)
+    (s3_valid, s3_req, s3_req_data),
+    (s4_valid, s4_req, s4_req_data)
   ).map(r => (r._1 && (s1_addr >> wordOffBits === r._2.addr >> wordOffBits) && isWrite(r._2.cmd), r._3))
                                                   // s1_addr and s(2,3,4)_addr in the same word
                                                   // and s(2,3,4) is write
@@ -1042,13 +1049,8 @@ class HellaCache extends L1HellaCacheModule {
   io.cpu.resp.bits := s2_req
   io.cpu.resp.bits.has_data := isRead(s2_req.cmd) || s2_sc
   io.cpu.resp.bits.replay := s2_replay
-  if(isTag(s2_req.cmd).isTrue) {
-    io.cpu.resp.bits.data := loadgen.tag 
-    io.cpu.resp.bits.data_subword := loadgen.tag
-  } else {
-    io.cpu.resp.bits.data := loadgen.word
-    io.cpu.resp.bits.data_subword := loadgen.byte | s2_sc_fail
-  } 
+  io.cpu.resp.bits.data := loadgen.word
+  io.cpu.resp.bits.data_subword := loadgen.byte | s2_sc_fail
   io.cpu.resp.bits.store_data := s2_req.data
   io.cpu.ordered := mshrs.io.fence_rdy && !s1_valid && !s2_valid // ???
 
