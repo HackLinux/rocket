@@ -1,5 +1,3 @@
-// See LICENSE for license details.
-
 package rocket
 
 import Chisel._
@@ -11,7 +9,10 @@ case object ECCCode extends Field[Option[Code]]
 
 abstract trait L1CacheParameters extends CacheParameters with CoreParameters {
   val co = params(TLCoherence)
-  val code = params(ECCCode).getOrElse(new IdentityCode) // if ECCCode is not defined, use IdentityCode
+  val code = params(ECCCode).getOrElse(new IdentityCode)
+  val outerDataBeats = params(TLDataBeats)
+  val refillCyclesPerBeat = params(TLDataBits)/rowBits
+  val refillCycles = refillCyclesPerBeat*outerDataBeats
 }
 
 abstract trait FrontendParameters extends L1CacheParameters
@@ -24,28 +25,31 @@ class FrontendReq extends CoreBundle {
 
 class FrontendResp extends CoreBundle {
   val pc = UInt(width = params(VAddrBits)+1)  // ID stage PC
-  val data = Bits(width = coreInstBits)       // ID stage inst
+  val data = Vec.fill(coreFetchWidth) (Bits(width = coreInstBits)) // ID stage inst
+  val mask = Bits(width = coreFetchWidth)     
   val xcpt_ma = Bool()                        // misalign
   val xcpt_if = Bool()                        // faulty fetch
 }
 
 class CPUFrontendIO extends CoreBundle {
-  val req = Valid(new FrontendReq)              // instruction fetch request from cpu
-  val resp = Decoupled(new FrontendResp).flip   // fetched instruction from iCache
-  val btb_resp = Valid(new BTBResp).flip        // branch prediction from BTB
-  val btb_update = Valid(new BTBUpdate)         // update for the BTB
-  val ptw = new TLBPTWIO().flip                 // TLB miss, request for page table
-  val invalidate = Bool(OUTPUT)                 // invalidate an cache block
+  val req = Valid(new FrontendReq)            // instruction fetch request from cpu
+  val resp = Decoupled(new FrontendResp).flip // fetched instruction from iCache
+  val btb_resp = Valid(new BTBResp).flip      // branch prediction from BTB
+  val btb_update = Valid(new BTBUpdate)       // update for the BTB
+  val bht_update = Valid(new BHTUpdate)       
+  val ras_update = Valid(new RASUpdate)
+  val ptw = new TLBPTWIO().flip               // TLB miss, request for page table
+  val invalidate = Bool(OUTPUT)               // invalidate an cache block
 }
 
-class Frontend extends FrontendModule
+class Frontend(btb_updates_out_of_order: Boolean = false) extends FrontendModule
 {
   val io = new Bundle {
     val cpu = new CPUFrontendIO().flip          // cpu, IO with core; cpu.ptw, page request to PTW 
     val mem = new UncachedTileLinkIO            // memory request
   }
 
-  val btb = Module(new BTB)
+  val btb = Module(new BTB(btb_updates_out_of_order))
   val icache = Module(new ICache)
   val tlb = Module(new TLB(params(NITLBEntries)))
 
@@ -59,13 +63,14 @@ class Frontend extends FrontendModule
   val s2_xcpt_if = Reg(init=Bool(false))
 
   val msb = vaddrBits-1
+  val lsb = log2Up(coreFetchWidth*coreInstBytes)
   val btbTarget = Cat(btb.io.resp.bits.target(msb), btb.io.resp.bits.target)
-  val pcp4_0 = s1_pc + UInt(coreInstBytes) // the next pc
-  val pcp4 = Cat(s1_pc(msb) & pcp4_0(msb), pcp4_0(msb,0))
+  val ntpc_0 = s1_pc + UInt(coreInstBytes*coreFetchWidth)
+  val ntpc = Cat(s1_pc(msb) & ntpc_0(msb), ntpc_0(msb,lsb), Bits(0,lsb)) // unsure
   val icmiss = s2_valid && !icache.io.resp.valid
-  val predicted_npc = Mux(btb.io.resp.bits.taken, btbTarget, pcp4)
+  val predicted_npc = Mux(btb.io.resp.bits.taken, btbTarget, ntpc)
   val npc = Mux(icmiss, s2_pc, predicted_npc).toUInt
-  val s0_same_block = !icmiss && !io.cpu.req.valid && !btb.io.resp.bits.taken && ((pcp4 & rowBytes) === (s1_pc & rowBytes))
+  val s0_same_block = !icmiss && !io.cpu.req.valid && !btb.io.resp.bits.taken && ((ntpc & rowBytes) === (s1_pc & rowBytes))
 
   val stall = io.cpu.resp.valid && !io.cpu.resp.ready
   when (!stall) {
@@ -87,7 +92,9 @@ class Frontend extends FrontendModule
 
   btb.io.req.valid := !stall && !icmiss
   btb.io.req.bits.addr := s1_pc & SInt(-coreInstBytes)
-  btb.io.update := io.cpu.btb_update
+  btb.io.btb_update := io.cpu.btb_update
+  btb.io.bht_update := io.cpu.bht_update
+  btb.io.ras_update := io.cpu.ras_update
   btb.io.invalidate := io.cpu.invalidate || io.cpu.ptw.invalidate
 
   tlb.io.ptw <> io.cpu.ptw
@@ -102,12 +109,22 @@ class Frontend extends FrontendModule
   icache.io.req.bits.idx := Mux(io.cpu.req.valid, io.cpu.req.bits.pc, npc)
   icache.io.invalidate := io.cpu.invalidate
   icache.io.req.bits.ppn := tlb.io.resp.ppn
-  icache.io.req.bits.kill := io.cpu.req.valid || tlb.io.resp.miss || icmiss
+  icache.io.req.bits.kill := io.cpu.req.valid || tlb.io.resp.miss || icmiss || io.cpu.ptw.invalidate
   icache.io.resp.ready := !stall && !s1_same_block
 
   io.cpu.resp.valid := s2_valid && (s2_xcpt_if || icache.io.resp.valid)
   io.cpu.resp.bits.pc := s2_pc & SInt(-coreInstBytes) // discard PC LSBs
-  io.cpu.resp.bits.data := icache.io.resp.bits.datablock >> (s2_pc(log2Up(rowBytes)-1,log2Up(coreInstBytes)) << log2Up(coreInstBits))
+
+
+  val fetch_data = icache.io.resp.bits.datablock >> (s2_pc(log2Up(rowBytes)-1,log2Up(coreFetchWidth*coreInstBytes)) << log2Up(coreFetchWidth*coreInstBits))
+  for (i <- 0 until coreFetchWidth) {
+    io.cpu.resp.bits.data(i) := fetch_data(i*coreInstBits+coreInstBits-1, i*coreInstBits)
+  }
+
+  val all_ones = UInt((1 << (coreFetchWidth+1))-1)
+  val msk_pc = if (coreFetchWidth == 1) all_ones else all_ones << s2_pc(log2Up(coreFetchWidth) -1+2,2)
+  io.cpu.resp.bits.mask := Mux(s2_btb_resp_valid, msk_pc & s2_btb_resp_bits.mask, msk_pc)
+
   io.cpu.resp.bits.xcpt_ma := s2_pc(log2Up(coreInstBytes)-1,0) != UInt(0)
   io.cpu.resp.bits.xcpt_if := s2_xcpt_if
 
@@ -183,23 +200,13 @@ class ICache extends FrontendModule
   val s2_miss = s2_valid && !s2_any_tag_hit           // cache miss
   rdy := state === s_ready && !s2_miss
 
-  var refill_cnt = UInt(0)
-  var refill_done = state === s_refill 
-  var refill_valid = io.mem.grant.valid
-  var refill_bits = io.mem.grant.bits
-  def doRefill(g: Grant): Bool = Bool(true)
-  if(refillCycles > 1) {                              // memory datawidth > cache datawidth ?? May be caused by memory burst transfer
-    // serialize the grant message from memArb
-    val ser = Module(new FlowThroughSerializer(io.mem.grant.bits, refillCycles, doRefill))
-    ser.io.in <> io.mem.grant
-    refill_cnt = ser.io.cnt
-    refill_done = ser.io.done
-    refill_valid = ser.io.out.valid
-    refill_bits = ser.io.out.bits
-    ser.io.out.ready := Bool(true)
-  } else {
-    io.mem.grant.ready := Bool(true)
-  }
+  val ser = Module(new FlowThroughSerializer(io.mem.grant.bits, refillCyclesPerBeat, (g: Grant) => co.messageUpdatesDataArray(g)))
+  ser.io.in <> io.mem.grant
+  val (refill_cnt, refill_wrap) = Counter(ser.io.out.fire(), refillCycles) //TODO Zero width wire
+  val refill_done = state === s_refill && refill_wrap
+  val refill_valid = ser.io.out.valid
+  val refill_bits = ser.io.out.bits
+  ser.io.out.ready := Bool(true)
   //assert(!c.tlco.isVoluntary(refill_bits.payload) || !refill_valid, "UncachedRequestors shouldn't get voluntary grants.")
 
   val repl_way = 
@@ -236,7 +243,7 @@ class ICache extends FrontendModule
   val s2_dout = Vec.fill(nWays){Reg(Bits())}
 
   for (i <- 0 until nWays) {
-    val s1_vb = vb_array(Cat(UInt(i), s1_pgoff(untagBits-1,blockOffBits))).toBool
+    val s1_vb = !io.invalidate && vb_array(Cat(UInt(i), s1_pgoff(untagBits-1,blockOffBits))).toBool
     val s2_vb = Reg(Bool())
     val s2_tag_disparity = Reg(Bool())
     val s2_tag_match = Reg(Bool())
@@ -257,8 +264,8 @@ class ICache extends FrontendModule
     val s1_raddr = Reg(UInt())
     when (refill_valid && repl_way === UInt(i)) {
       val e_d = code.encode(refill_bits.payload.data)
-      if(refillCycles > 1) data_array(Cat(s2_idx,refill_cnt)) := e_d
-      else                   data_array(s2_idx) := e_d
+      if(refillCycles > 1) data_array(Cat(s2_idx, refill_cnt)) := e_d
+      else data_array(s2_idx) := e_d
     }
 //    /*.else*/when (s0_valid) { // uncomment ".else" to infer 6T SRAM
     .elsewhen (s0_valid) {
@@ -273,8 +280,8 @@ class ICache extends FrontendModule
 
   // queue the finish message to memArb
   val ack_q = Module(new Queue(new LogicalNetworkIO(new Finish), 1))
-  ack_q.io.enq.valid := refill_done && co.requiresAckForGrant(refill_bits.payload.g_type)
-  ack_q.io.enq.bits.payload.master_xact_id := refill_bits.payload.master_xact_id
+  ack_q.io.enq.valid := refill_done && co.requiresAckForGrant(refill_bits.payload)
+  ack_q.io.enq.bits.payload.manager_xact_id := refill_bits.payload.manager_xact_id
   ack_q.io.enq.bits.header.dst := refill_bits.header.src
 
   // output signals
