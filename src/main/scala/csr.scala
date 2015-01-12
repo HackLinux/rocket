@@ -78,8 +78,8 @@ class CSRFile extends Module
   val reg_fromhost = Reg(init=Bits(0, params(XprLen)))
   val reg_sup0 = Reg(Bits(width = params(XprLen)))
   val reg_sup1 = Reg(Bits(width = params(XprLen)))
-  val reg_ptbr = Reg(UInt(width = params(PAddrBits)))       //  page table base address register
-  val reg_tagbr = Reg(UInt(width = params(PAddrBits)))      //  register for the base field of the tag memory partition
+  val reg_ptbr = Reg(UInt(width = params(PAddrBits)))
+  val reg_tagbr = Reg(UInt(width = params(PAddrBits)))
   val reg_stats = Reg(init=Bool(false))
   val reg_status = Reg(new Status) // reset down below
   val reg_time = WideCounter(params(XprLen))

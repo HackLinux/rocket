@@ -73,22 +73,28 @@ class LoadGen(typ: Bits, addr: Bits, dat: Bits, zero: Bool, tagWidth: Int)
   val byte = Mux(t.tag,  tag, Cat(Mux(zero || t.byte, Fill(56, sign && byteShift(7)), half(63,8)), byteShift))
 }
 
-class HellaCacheReq extends CoreBundle {
+trait HasCoreData extends CoreBundle {
+  val data = Bits(width = coreDataBits)
+}
+
+class HellaCacheReqInternal extends CoreBundle {
   val kill = Bool()
   val typ  = Bits(width = MT_SZ)
   val phys = Bool()
   val addr = UInt(width = coreMaxAddrBits)
-  val data = Bits(width = coreDataBits)
   val tag  = Bits(width = coreDCacheReqTagBits)
   val cmd  = Bits(width = M_SZ)
 }
 
-class HellaCacheResp extends CoreBundle {
+class HellaCacheReq extends HellaCacheReqInternal
+    with HasCoreData
+
+class HellaCacheResp extends CoreBundle
+    with HasCoreData {
   val nack = Bool() // comes 2 cycles after req.fire
   val replay = Bool()
   val typ = Bits(width = 3)
   val has_data = Bool()
-  val data = Bits(width = coreDataBits)
   val data_subword = Bits(width = coreDataBits)
   val tag = Bits(width = coreDCacheReqTagBits)
   val cmd  = Bits(width = 4)
@@ -167,7 +173,6 @@ class WritebackReq extends L1HellaCacheBundle {
   val idx = Bits(width = idxBits)
   val way_en = Bits(width = nWays)
   val client_xact_id = Bits(width = params(TLClientXactIdBits))
-  val master_xact_id = Bits(width = params(TLMasterXactIdBits))
   val r_type = UInt(width = co.releaseTypeWidth) 
 }
 
@@ -178,8 +183,7 @@ class MSHR(id: Int) extends L1HellaCacheModule {
     val req_pri_rdy    = Bool(OUTPUT)                     // ready for primary miss request
     val req_sec_val    = Bool(INPUT)                      // secondary miss request valid
     val req_sec_rdy    = Bool(OUTPUT)                     // ready for secondary miss request
-    val req_bits       = new MSHRReq().asInput
-    val req_sdq_id     = UInt(INPUT, log2Up(params(StoreDataQueueDepth)))
+    val req_bits       = new MSHRReqInternal().asInput
 
     val idx_match       = Bool(OUTPUT)
     val tag             = Bits(OUTPUT, tagBits)
@@ -188,7 +192,7 @@ class MSHR(id: Int) extends L1HellaCacheModule {
     val mem_resp = new DataWriteReq().asOutput            // write to data array in dcache
     val meta_read = Decoupled(new L1MetaReadReq)
     val meta_write = Decoupled(new L1MetaWriteReq)
-    val replay = Decoupled(new Replay)                    // request to dcache s0 to replay the missed dcache request 
+    val replay = Decoupled(new ReplayInternal)            // request to dcache s0 to replay the missed dcache request 
     val mem_grant = Valid(new LogicalNetworkIO(new Grant)).flip // memory Grant response
     val mem_finish = Decoupled(new LogicalNetworkIO(new Finish)) // memory finish message
     val wb_req = Decoupled(new WritebackReq)              // write back a data to NoC
@@ -232,10 +236,9 @@ class MSHR(id: Int) extends L1HellaCacheModule {
                                   // isWrite(req_cmd)     -> clientExclusiveDirty
                                   //                      -> coh.state
 
-  val rpq = Module(new Queue(new Replay, params(ReplayQueueDepth)))
+  val rpq = Module(new Queue(new ReplayInternal, params(ReplayQueueDepth)))
   rpq.io.enq.valid := (io.req_pri_val && io.req_pri_rdy || io.req_sec_val && sec_rdy) && !isPrefetch(req_cmd) // !isPrefetch(req_cmd), prefetch does not need replay in dcache (s0 to s2)
   rpq.io.enq.bits := io.req_bits
-  rpq.io.enq.bits.sdq_id := io.req_sdq_id
   rpq.io.deq.ready := io.replay.ready && state === s_drain_rpq || state === s_invalid
 
   when (state === s_drain_rpq && !rpq.io.deq.valid) {
@@ -269,7 +272,7 @@ class MSHR(id: Int) extends L1HellaCacheModule {
   }
   when (io.req_pri_val && io.req_pri_rdy) {
     line_state := meta_on_flush
-    refill_count := UInt(0)
+    refill_cnt := UInt(0)
     acquire_type := co.getAcquireTypeOnPrimaryMiss(req_cmd, meta_on_flush)   // get the intended coherence state (E/S for MSI) 
     release_type := co.getReleaseTypeOnVoluntaryWriteback() //TODO downgrades etc 
     req := io.req_bits
@@ -322,9 +325,7 @@ class MSHR(id: Int) extends L1HellaCacheModule {
   io.wb_req.bits.r_type := co.getReleaseTypeOnVoluntaryWriteback()
 
   io.mem_req.valid := state === s_refill_req && ackq.io.enq.ready
-  io.mem_req.bits.a_type := acquire_type
-  io.mem_req.bits.addr := Cat(io.tag, req_idx).toUInt
-  io.mem_req.bits.client_xact_id := Bits(id)
+  io.mem_req.bits := Acquire(acquire_type, Cat(io.tag, req_idx).toUInt, Bits(id))
   io.mem_finish <> ackq.io.deq
 
   io.meta_read.valid := state === s_drain_rpq
@@ -400,7 +401,7 @@ class MSHRFile extends L1HellaCacheModule {
 
     mshr.io.req_sec_val := io.req.valid && sdq_rdy && tag_match
     mshr.io.req_bits := io.req.bits
-    mshr.io.req_sdq_id := sdq_alloc_id
+    mshr.io.req_bits.sdq_id := sdq_alloc_id
 
     mshr.io.meta_read <> meta_read_arb.io.in(i)
     mshr.io.meta_write <> meta_write_arb.io.in(i)
@@ -507,20 +508,6 @@ class WritebackUnit extends L1HellaCacheModule {
   io.release.bits.r_type := req.r_type
   io.release.bits.addr := Cat(req.tag, req.idx).toUInt
   io.release.bits.client_xact_id := req.client_xact_id
-<<<<<<< HEAD
-  io.release.bits.master_xact_id := req.master_xact_id
-  if(refillCycles > 1) {
-    val data_buf = Reg(Bits())
-    when(active && r2_data_req_fired) {
-      data_buf := Cat(remove_tag(io.data_resp), data_buf(refillCycles*encRowBits-1, encRowBits))
-      //data_buf := Cat(io.data_resp, data_buf(refillCycles*encRowBits-1, encRowBits))
-    }
-    io.release.bits.data := data_buf
-  } else {
-    io.release.bits.data := remove_tag(io.data_resp)
-    //io.release.bits.data := io.data_resp
-  }
-
   io.release.bits.data := 
     (if(refillCyclesPerBeat > 1) {
       val data_buf = Reg(Bits())
@@ -622,7 +609,6 @@ class ProbeUnit extends L1HellaCacheModule {
   io.wb_req.bits.tag := req.addr >> UInt(idxBits)
   io.wb_req.bits.r_type := co.getReleaseTypeOnProbe(req, Mux(hit, line_state, co.clientMetadataOnFlush))
   io.wb_req.bits.client_xact_id := req.client_xact_id
-  io.wb_req.bits.master_xact_id := req.master_xact_id
 }
 
 class DataArray extends L1HellaCacheModule {

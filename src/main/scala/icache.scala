@@ -287,7 +287,7 @@ class ICache extends FrontendModule
   // output signals
   io.resp.valid := s2_hit
   io.mem.acquire.valid := (state === s_request) && ack_q.io.enq.ready
-  io.mem.acquire.bits.payload := Acquire(co.getUncachedReadAcquireType, s2_addr >> UInt(blockOffBits), UInt(0))
+  io.mem.acquire.bits.payload := UncachedRead(s2_addr >> UInt(blockOffBits))
   io.mem.finish <> ack_q.io.deq
 
   // control state machine

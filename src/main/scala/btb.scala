@@ -29,14 +29,14 @@ abstract trait BTBParameters extends UsesParameters {
 class RAS(nras: Int) {
   def push(addr: UInt): Unit = {
     when (count < nras) { count := count + 1 }
-    val nextPos = Mux(Bool(isPow2(nras)) || pos > 0, pos+1, UInt(0)) // the guard seems unneccessary
+    val nextPos = Mux(Bool(isPow2(nras)) || pos > 0, pos+1, UInt(0))
     stack(nextPos) := addr
     pos := nextPos
   }
   def peek: UInt = stack(pos)
   def pop: Unit = when (!isEmpty) {
     count := count - 1
-    pos := Mux(Bool(isPow2(nras)) || pos > 0, pos-1, UInt(nras-1))  // the guard seems unneccessary
+    pos := Mux(Bool(isPow2(nras)) || pos > 0, pos-1, UInt(nras-1))
   }
   def clear: Unit = count := UInt(0)
   def isEmpty: Bool = count === UInt(0)
@@ -82,7 +82,7 @@ class BHT(nbht: Int) {
     when (mispredict) { history := Cat(taken, d.history(nbhtbits-1,1)) }
   }
 
-  private val table = Mem(UInt(width = 2), nbht) // 2-bit history
+  private val table = Mem(UInt(width = 2), nbht)
   val history = Reg(UInt(width = nbhtbits))
 }
 
@@ -90,9 +90,9 @@ class BHT(nbht: Int) {
 //  - "pc" is what future fetch PCs will tag match against.
 //  - "br_pc" is the PC of the branch instruction.
 class BTBUpdate extends Bundle with BTBParameters {
-  val prediction = Valid(new BTBResp)         // the actual branch result from the core 
-  val pc = UInt(width = vaddrBits)            // the pc of the branch instruction
-  val target = UInt(width = vaddrBits)        // the actual target (next pc)
+  val prediction = Valid(new BTBResp)
+  val pc = UInt(width = vaddrBits)
+  val target = UInt(width = vaddrBits)
   val taken = Bool()
   val isJump = Bool()
   val isReturn = Bool()
@@ -120,12 +120,12 @@ class RASUpdate extends Bundle with BTBParameters {
 //  - "resp.mask" provides a mask of valid instructions (instructions are
 //     masked off by the predicted taken branch).
 class BTBResp extends Bundle with BTBParameters {
-  val taken = Bool()                          // the  predicted taken from BHT
+  val taken = Bool()
   val mask = Bits(width = params(FetchWidth))
   val bridx = Bits(width = log2Up(params(FetchWidth)))
-  val target = UInt(width = vaddrBits)        // the predicted branch target from BTB 
-  val entry = UInt(width = opaqueBits)        // entry index in the BTB 
-  val bht = new BHTResp                       // follow the instruction until when updated (incl history and entry)
+  val target = UInt(width = vaddrBits)
+  val entry = UInt(width = opaqueBits)
+  val bht = new BHTResp
 }
 
 class BTBReq extends Bundle with BTBParameters {
@@ -138,9 +138,8 @@ class BTBReq extends Bundle with BTBParameters {
 // placed in BTB).
 class BTB(updates_out_of_order: Boolean = false) extends Module with BTBParameters {
   val io = new Bundle {
-    val req = Valid(new BTBReq).flip         // request from icache
-    val resp = Valid(new BTBResp)            // branch prediction to icache and core
-    val update = Valid(new BTBUpdate).flip   // branch update from core
+    val req = Valid(new BTBReq).flip
+    val resp = Valid(new BTBResp)
     val btb_update = Valid(new BTBUpdate).flip
     val bht_update = Valid(new BHTUpdate).flip
     val ras_update = Valid(new RASUpdate).flip
@@ -152,39 +151,40 @@ class BTB(updates_out_of_order: Boolean = false) extends Module with BTBParamete
   //   pc[matchBits-1:0]       branch target
 
 
-  val idxValid = Reg(init=UInt(0, entries))                 // whether the entry is valid 
-  val idxs = Mem(UInt(width=matchBits), entries)            // the array of source pc
-  val idxPages = Mem(UInt(width=log2Up(nPages)), entries)   // page pointer
-  val tgts = Mem(UInt(width=matchBits), entries)            // the array of branch target
-  val tgtPages = Mem(UInt(width=log2Up(nPages)), entries)   // page pointer
-  val pages = Mem(UInt(width=vaddrBits-matchBits), nPages)  // page field
-  val pageValid = Reg(init=UInt(0, nPages))                 // whether a page is valid
-  val idxPagesOH = idxPages.map(UIntToOH(_)(nPages-1,0))    // one-hot of idxPages
-  val tgtPagesOH = tgtPages.map(UIntToOH(_)(nPages-1,0))    // one-hot of tgtPages
+  val idxValid = Reg(init=UInt(0, entries))
+  val idxs = Mem(UInt(width=matchBits), entries)
+  val idxPages = Mem(UInt(width=log2Up(nPages)), entries)
+  val tgts = Mem(UInt(width=matchBits), entries)
+  val tgtPages = Mem(UInt(width=log2Up(nPages)), entries)
+  val pages = Mem(UInt(width=vaddrBits-matchBits), nPages)
+  val pageValid = Reg(init=UInt(0, nPages))
+  val idxPagesOH = idxPages.map(UIntToOH(_)(nPages-1,0))
+  val tgtPagesOH = tgtPages.map(UIntToOH(_)(nPages-1,0))
 
-  val useRAS = Reg(UInt(width = entries))                   // specify certain entries for return 
-  val isJump = Reg(UInt(width = entries))                   // specify certain entries for jump
+  val useRAS = Reg(UInt(width = entries))
+  val isJump = Reg(UInt(width = entries))
   val brIdx  = Mem(UInt(width=log2Up(params(FetchWidth))), entries)
 
-  private def page(addr: UInt) = addr >> matchBits          // get the page field of an addr 
-  private def pageMatch(addr: UInt) = {                     // check if there is a page matching with this addr
+  private def page(addr: UInt) = addr >> matchBits
+  private def pageMatch(addr: UInt) = {
     val p = page(addr)
     Vec(pages.map(_ === p)).toBits & pageValid
   }
-  private def tagMatch(addr: UInt, pgMatch: UInt): UInt = { // whether addr matches an idx and pgMatch matches a page
+   // whether addr matches an idx and pgMatch matches a page
+  private def tagMatch(addr: UInt, pgMatch: UInt): UInt = {
     val idx = addr(matchBits-1,0)
     val idxMatch = idxs.map(_ === idx).toBits
     val idxPageMatch = idxPagesOH.map(_ & pgMatch).map(_.orR).toBits
     idxValid & idxMatch & idxPageMatch
   }
 
-  val r_btb_update = Pipe(io.update)                         // delay io.update for 1 cycle 
-  val update_target = io.req.bits.addr                       // the new branch target if valid
+  val r_btb_update = Pipe(io.btb_update)
+  val update_target = io.req.bits.addr
 
-  val pageHit = pageMatch(io.req.bits.addr)                  // prediction request matches with pages in the BTB
-  val hits = tagMatch(io.req.bits.addr, pageHit)             // find a possible hit for request
-  val updatePageHit = pageMatch(r_btb_update.bits.pc)        // update matches with pages in the BTB
-  val updateHits = tagMatch(r_btb_update.bits.pc, updatePageHit) // find a possible hit for update
+  val pageHit = pageMatch(io.req.bits.addr)
+  val hits = tagMatch(io.req.bits.addr, pageHit)
+  val updatePageHit = pageMatch(r_btb_update.bits.pc)
+  val updateHits = tagMatch(r_btb_update.bits.pc, updatePageHit)
 
   private var lfsr = LFSR16(r_btb_update.valid)
   def rand(width: Int) = {
@@ -192,34 +192,36 @@ class BTB(updates_out_of_order: Boolean = false) extends Module with BTBParamete
     Random.oneHot(width, lfsr)
   }
 
-  val updateHit = r_btb_update.bits.prediction.valid                                     // BTB needs update due to branch 
+  val updateHit = r_btb_update.bits.prediction.valid
 
-  val useUpdatePageHit = updatePageHit.orR                                           // page hit for update 
-  val doIdxPageRepl = !useUpdatePageHit                                              // need to replace a page (need update but no page hit) 
-  val idxPageRepl = UInt()                                                           // the page to be replaced due to no hit for update 
+  val useUpdatePageHit = updatePageHit.orR
+  val doIdxPageRepl = !useUpdatePageHit
+  val idxPageRepl = UInt()
   val idxPageUpdateOH = Mux(useUpdatePageHit, updatePageHit, idxPageRepl)
-  val idxPageUpdate = OHToUInt(idxPageUpdateOH)                                      // get the page to be updated (hit or replace) 
-  val idxPageReplEn = Mux(doIdxPageRepl, idxPageRepl, UInt(0))                       // enable replacing a page 
+  val idxPageUpdate = OHToUInt(idxPageUpdateOH)
+  val idxPageReplEn = Mux(doIdxPageRepl, idxPageRepl, UInt(0))
 
   // a single misprediction may require two page entries to be written
   // one for the miss branch source (due to invalidate or initial empty buffer)
   // the other due to the branch target
 
-  val samePage = page(r_btb_update.bits.pc) === page(update_target)                  // branch source and target in the same page 
+  val samePage = page(r_btb_update.bits.pc) === page(update_target)
   val usePageHit = (pageHit & ~idxPageReplEn).orR
   val doTgtPageRepl = !samePage && !usePageHit
-  val tgtPageRepl = Mux(samePage, idxPageUpdateOH, idxPageUpdateOH(nPages-2,0) << 1 | idxPageUpdateOH(nPages-1))// if not the same page, use the previous one to avoid being replaced immediately afterwords. (FIFO replacement)
+  // if not the same page, use the previous one to avoid being replaced immediately afterwords. (FIFO replacement)
+  val tgtPageRepl = Mux(samePage, idxPageUpdateOH, idxPageUpdateOH(nPages-2,0) << 1 | idxPageUpdateOH(nPages-1))
   val tgtPageUpdate = OHToUInt(Mux(usePageHit, pageHit, tgtPageRepl))
   val tgtPageReplEn = Mux(doTgtPageRepl, tgtPageRepl, UInt(0))
   val doPageRepl = doIdxPageRepl || doTgtPageRepl
 
   val pageReplEn = idxPageReplEn | tgtPageReplEn
-  idxPageRepl := UIntToOH(Counter(r_btb_update.valid && doPageRepl, nPages)._1)       // increase every time a new page is needed, FIFO replace? 
+  idxPageRepl := UIntToOH(Counter(r_btb_update.valid && doPageRepl, nPages)._1)
 
   when (r_btb_update.valid) {
     assert(io.req.bits.addr === r_btb_update.bits.target, "BTB request != I$ target")
 
-    val nextRepl = Counter(!updateHit, entries)._1                                    // increase every time a new entry is needed, FIFO replace? 
+    // increase every time a new entry is needed, FIFO replace?     
+    val nextRepl = Counter(!updateHit, entries)._1
     val waddr =
       if (updates_out_of_order) Mux(updateHits.orR, OHToUInt(updateHits), nextRepl)
       else Mux(updateHit, r_btb_update.bits.prediction.bits.entry, nextRepl)
@@ -260,7 +262,7 @@ class BTB(updates_out_of_order: Boolean = false) extends Module with BTBParamete
 
   // invalidate the whole BTB?
   when (io.invalidate) {
-    idxValid := 0  
+    idxValid := 0
     pageValid := 0
   }
 
@@ -280,7 +282,8 @@ class BTB(updates_out_of_order: Boolean = false) extends Module with BTBParamete
   // Brach history table
   if (nBHT > 0) {
     val bht = new BHT(nBHT)
-    val res = bht.get(io.req.bits.addr, io.req.valid && hits.orR && !Mux1H(hits, isJump)) // no update for Jump which is fixed
+    // no update for Jump which is fixed
+    val res = bht.get(io.req.bits.addr, io.req.valid && hits.orR && !Mux1H(hits, isJump))
     val update_btb_hit = io.bht_update.bits.prediction.valid
     when (io.bht_update.valid && update_btb_hit) {
       bht.update(io.bht_update.bits.pc, io.bht_update.bits.prediction.bits.bht, io.bht_update.bits.taken, io.bht_update.bits.mispredict)
