@@ -11,7 +11,6 @@ case object ReplayQueueDepth extends Field[Int]
 case object NMSHRs extends Field[Int]
 case object LRSCCycles extends Field[Int]
 case object NDTLBEntries extends Field[Int]
-case object TagBits extends Field[Int]
 
 abstract trait L1HellaCacheParameters extends L1CacheParameters {
   val idxMSB = untagBits-1
@@ -26,7 +25,7 @@ abstract trait L1HellaCacheParameters extends L1CacheParameters {
 
   // support memory tags
   val memTagBits = params(TagBits)
-  val taggedDataBits = coreDataBits + memTagBits
+  val taggedDataBits = params(CoreDataBits) + params(TagBits)
   val encTaggedDataBits = code.width(taggedDataBits)
   val encTaggedRowBits = encTaggedDataBits*rowWords
 }
@@ -499,11 +498,6 @@ class WritebackUnit extends L1HellaCacheModule {
   io.data_req.bits.addr := (if(refillCycles > 1) Cat(req.idx, cnt(log2Up(refillCycles)-1,0))
                             else req.idx) << rowOffBits
 
-  def remove_tag(cache_data: Bits): Bits = {
-    val raw_data = (0 until rowWords).map(i => cache_data(i*encTaggedDataBits+coreDataBits-1, i*encTaggedDataBits))
-    Vec(raw_data).toBits
-  }
-
   io.release.bits.r_type := req.r_type
   io.release.bits.addr := Cat(req.tag, req.idx).toUInt
   io.release.bits.client_xact_id := req.client_xact_id
@@ -511,13 +505,13 @@ class WritebackUnit extends L1HellaCacheModule {
     (if(refillCyclesPerBeat > 1) {
       val data_buf = Reg(Bits())
       when(active && r2_data_req_fired && !beat_done) {
-        data_buf := Cat(remove_tag(io.data_resp), data_buf((refillCyclesPerBeat-1)*encRowBits-1, encRowBits))
+        data_buf := Cat(io.data_resp, data_buf((refillCyclesPerBeat-1)*encRowBits-1, encRowBits))
         buf_v := (if(refillCyclesPerBeat > 2)
                     Cat(UInt(1), buf_v(refillCyclesPerBeat-2,1))
                   else UInt(1))
       }
       Cat(io.data_resp, data_buf)
-    } else { remove_tag(io.data_resp) })
+    } else { io.data_resp })
 }
 
 class ProbeUnit extends L1HellaCacheModule {
@@ -714,12 +708,6 @@ class HellaCache extends L1HellaCacheModule {
   require(paddrBits-blockOffBits == params(TLAddrBits) )
   require(untagBits <= pgIdxBits)
 
-  def insert_tag(mem_data: Bits): Bits = {
-    val raw_data = (0 until rowWords).map(i =>
-      Cat(Bits(0, memTagBits), mem_data((i+1)*coreDataBits-1, i*coreDataBits)))
-    Vec(raw_data).toBits
-  }
-
   val wb = Module(new WritebackUnit)
   val prober = Module(new ProbeUnit)
   val mshrs = Module(new MSHRFile)
@@ -739,7 +727,7 @@ class HellaCache extends L1HellaCacheModule {
 
   val s3_valid = Reg(init=Bool(false))
   val s3_req = Reg(io.cpu.req.bits.clone)
-  val s3_req_data = Reg(Bits(width=taggedDataBits))  // do not use the data in s2_req2 as tag will be lost 
+  val s3_req_data = Reg(Bits(width=taggedDataBits))  // do not use the data in s2_req as tag will be lost 
   val s3_way = Reg(Bits())
 
   val s1_recycled = RegEnable(s2_recycle, s1_clk_en)
@@ -968,7 +956,7 @@ class HellaCache extends L1HellaCacheModule {
   writeArb.io.in(1).bits.wmask := SInt(-1)
   //writeArb.io.in(1).bits.data := refill.bits.payload.data(encRowBits-1,0) 
   // not really ECC protected right now, the width "encRowBits" is actually coreDataBits * rowWrods
-  writeArb.io.in(1).bits.data := insert_tag(refill.bits.payload.data(encRowBits-1,0))
+  writeArb.io.in(1).bits.data := (refill.bits.payload.data(encRowBits-1,0)
   readArb.io.out.ready := !refill.valid || refill.ready // insert bubble if refill gets blocked
   readArb.io.out <> data.io.read
 

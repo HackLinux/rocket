@@ -8,8 +8,7 @@ import Node._
 import uncore._
 import scala.math._
 
-case object TagOffsetBits extends Field[Int]
-case object TagParSize extends Field[Int]
+case object TagMemSize extends Field[Int]
 
 class Status extends Bundle {
   val ip = Bits(width = 8)       // interrupt sources 
@@ -166,7 +165,7 @@ class CSRFile extends Module
 
   val read_impl = Bits(2)
   val read_ptbr = reg_ptbr(params(PAddrBits)-1, params(PgIdxBits)) << UInt(params(PgIdxBits))
-  val read_tagbr = reg_tagbr(params(PAddrBits)-1, params(TagParSize)) << UInt(params(TagParSize))
+  val read_tagbr = reg_tagbr(params(PAddrBits)-1, params(TagMemSize)) << UInt(params(TagMemSize))
 
   val read_mapping = collection.mutable.LinkedHashMap[Int,Bits](
     CSRs.fflags -> (if (!params(BuildFPU).isEmpty) reg_fflags else UInt(0)),
@@ -229,7 +228,7 @@ class CSRFile extends Module
     when (decoded_addr(CSRs.sup0))     { reg_sup0 := wdata }
     when (decoded_addr(CSRs.sup1))     { reg_sup1 := wdata }
     when (decoded_addr(CSRs.ptbr))     { reg_ptbr := Cat(wdata(params(PAddrBits)-1, params(PgIdxBits)), Bits(0, params(PgIdxBits))).toUInt }
-    when (decoded_addr(CSRs.tagbr))    { reg_tagbr := Cat(wdata(params(PAddrBits)-1, params(TagParSize)), Bits(0, params(TagParSize))).toUInt }
+    when (decoded_addr(CSRs.tagbr))    { reg_tagbr := Cat(wdata(params(PAddrBits)-1, params(TagMemSize)), Bits(0, params(TagMemSize))).toUInt }
                                                             // write the tag base address
     when (decoded_addr(CSRs.stats))    { reg_stats := wdata(0) }
   }

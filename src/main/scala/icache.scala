@@ -263,7 +263,8 @@ class ICache extends FrontendModule
     val data_array = Mem(Bits(width = code.width(rowBits)), nSets*refillCycles, seqRead = true)
     val s1_raddr = Reg(UInt())
     when (refill_valid && repl_way === UInt(i)) {
-      val e_d = code.encode(refill_bits.payload.data)
+      require(rowBits % CoreDataBits == 0)
+      val e_d = code.encode(RemoveTag(refill_bits.payload.data, params(TagBits), params(CoreDataBits))
       if(refillCycles > 1) data_array(Cat(s2_idx, refill_cnt)) := e_d
       else data_array(s2_idx) := e_d
     }

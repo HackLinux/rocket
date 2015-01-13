@@ -8,8 +8,6 @@ import uncore.constants.MemoryOpConstants._
 import ALU._
 import Util._
 
-case object BuildTag extends Field[Bool]
-
 class CtrlDpathIO extends Bundle
 {
   // outputs to datapath
@@ -358,7 +356,7 @@ class Control extends Module
   var decode_table = XDecode.table
   if (!params(BuildFPU).isEmpty) decode_table ++= FDecode.table
   if (!params(BuildRoCC).isEmpty) decode_table ++= RoCCDecode.table
-  if (params(BuildTag)) decode_table ++= TagDecode.table
+  decode_table ++= TagDecode.table
 
   val id_ctrl = new IntCtrlSigs().decode(io.dpath.inst, decode_table)
   val ex_ctrl = Reg(new IntCtrlSigs)
