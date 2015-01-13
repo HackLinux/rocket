@@ -93,7 +93,7 @@ class HellaCacheResp extends CoreBundle
     with HasCoreData {
   val nack = Bool() // comes 2 cycles after req.fire
   val replay = Bool()
-  val typ = Bits(width = 3)
+  val typ = Bits(width = MT_SZ)
   val has_data = Bool()
   val data_subword = Bits(width = coreDataBits)
   val tag = Bits(width = coreDCacheReqTagBits)
@@ -321,7 +321,6 @@ class MSHR(id: Int) extends L1HellaCacheModule {
   io.wb_req.bits.idx := req_idx
   io.wb_req.bits.way_en := req.way_en
   io.wb_req.bits.client_xact_id := Bits(id)
-  io.wb_req.bits.master_xact_id := Bits(0) // DNC
   io.wb_req.bits.r_type := co.getReleaseTypeOnVoluntaryWriteback()
 
   io.mem_req.valid := state === s_refill_req && ackq.io.enq.ready
@@ -664,7 +663,7 @@ class AMOALU extends L1HellaCacheModule {
   val io = new Bundle {
     val addr = Bits(INPUT, blockOffBits)
     val cmd = Bits(INPUT, 4)
-    val typ = Bits(INPUT, 3)
+    val typ = Bits(INPUT, MT_SZ)
     val lhs = Bits(INPUT, taggedDataBits)
     val rhs = Bits(INPUT, taggedDataBits)
     val out = Bits(OUTPUT, taggedDataBits)
