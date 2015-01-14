@@ -505,7 +505,7 @@ class WritebackUnit extends L1HellaCacheModule {
     (if(refillCyclesPerBeat > 1) {
       val data_buf = Reg(Bits())
       when(active && r2_data_req_fired && !beat_done) {
-        data_buf := Cat(io.data_resp, data_buf((refillCyclesPerBeat-1)*encRowBits-1, encRowBits))
+        data_buf := Cat(io.data_resp, data_buf((refillCyclesPerBeat-1)*encTaggedRowBits-1, encTaggedRowBits))
         buf_v := (if(refillCyclesPerBeat > 2)
                     Cat(UInt(1), buf_v(refillCyclesPerBeat-2,1))
                   else UInt(1))
@@ -956,7 +956,7 @@ class HellaCache extends L1HellaCacheModule {
   writeArb.io.in(1).bits.wmask := SInt(-1)
   //writeArb.io.in(1).bits.data := refill.bits.payload.data(encRowBits-1,0) 
   // not really ECC protected right now, the width "encRowBits" is actually coreDataBits * rowWrods
-  writeArb.io.in(1).bits.data := (refill.bits.payload.data(encRowBits-1,0)
+  writeArb.io.in(1).bits.data := refill.bits.payload.data(encTaggedRowBits-1,0)
   readArb.io.out.ready := !refill.valid || refill.ready // insert bubble if refill gets blocked
   readArb.io.out <> data.io.read
 
