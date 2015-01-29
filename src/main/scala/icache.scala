@@ -158,12 +158,9 @@ class ICache extends FrontendModule
   require(isPow2(nSets) && isPow2(nWays))
   require(isPow2(coreInstBytes))
   require(pgIdxBits >= untagBits)
-  // need require(isPow2(refillCycles)) ?
 
-  // ready: icache ready for request from core
-  // request: icache miss and ask for refill from mem
-  // refill_wait: memory request ready for sending
-  // refill: refilling the cache line
+  // tag utilities
+  val tagUtil = new TagUtil(params(TagBits), params(CoreDataBits))
 
   val s_ready :: s_request :: s_refill_wait :: s_refill :: Nil = Enum(UInt(), 4)
   val state = Reg(init=s_ready)
@@ -264,7 +261,7 @@ class ICache extends FrontendModule
     val s1_raddr = Reg(UInt())
     when (refill_valid && repl_way === UInt(i)) {
       require(rowBits % params(CoreDataBits) == 0)
-      val e_d = code.encode(RemoveTag(refill_bits.payload.data, params(TagBits), params(CoreDataBits)))
+      val e_d = code.encode(tagUtil.removeTag(refill_bits.payload.data))
       if(refillCycles > 1) data_array(Cat(s2_idx, refill_cnt)) := e_d
       else data_array(s2_idx) := e_d
     }
