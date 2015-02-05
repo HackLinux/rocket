@@ -154,7 +154,7 @@ object Simplify
   }
 }
 
-object SimplifyDC
+object SimplifyDC // related to canonical disjunctive normal form (CDNF), wiki
 {
   def getImplicitDC(maxterms: Seq[Term], term: Term, bits: Int, above: Boolean): Term = {
     for (i <- 0 until bits) {

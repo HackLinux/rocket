@@ -188,6 +188,8 @@ object Instructions {
   def CUSTOM3_RD         = Bits("b?????????????????100?????1111011")
   def CUSTOM3_RD_RS1     = Bits("b?????????????????110?????1111011")
   def CUSTOM3_RD_RS1_RS2 = Bits("b?????????????????111?????1111011")
+  def LTAG               = Bits("b?????????????????000?????1010111")
+  def STAG               = Bits("b?????????????????001?????1010111")
 }
 object Causes {
   val misaligned_fetch = 0x0
@@ -219,53 +221,65 @@ object Causes {
     res.toArray
   }
 }
+
+// 0xC??                     privileged when W
+//             0xE?? 0xF??   privileged when R/W
+//       0xD??               privileged when W in User mode
+// 0x8??       0xA?? 0xB??   privileged when R/W
+//       0x9??               privileged when R/W in User mode
+// 0x4?? 0x5?? 0x6?? 0x7??   privileged when R/W in User mode
+
+// writing to CSRs will lead to pipeline flush except for same CSRs (including sup0, sup1, epc) 
+
+
 object CSRs {
-  val fflags = 0x1
-  val frm = 0x2
-  val fcsr = 0x3
-  val stats = 0xc0
-  val sup0 = 0x500
-  val sup1 = 0x501
-  val epc = 0x502
-  val badvaddr = 0x503
-  val ptbr = 0x504
-  val asid = 0x505
-  val count = 0x506
-  val compare = 0x507
-  val evec = 0x508
-  val cause = 0x509
-  val status = 0x50a
-  val hartid = 0x50b
-  val impl = 0x50c
-  val fatc = 0x50d
-  val send_ipi = 0x50e
-  val clear_ipi = 0x50f
-  val reset = 0x51d
-  val tohost = 0x51e
-  val fromhost = 0x51f
-  val cycle = 0xc00
-  val time = 0xc01
-  val instret = 0xc02
-  val uarch0 = 0xcc0
-  val uarch1 = 0xcc1
-  val uarch2 = 0xcc2
-  val uarch3 = 0xcc3
-  val uarch4 = 0xcc4
-  val uarch5 = 0xcc5
-  val uarch6 = 0xcc6
-  val uarch7 = 0xcc7
-  val uarch8 = 0xcc8
-  val uarch9 = 0xcc9
-  val uarch10 = 0xcca
-  val uarch11 = 0xccb
-  val uarch12 = 0xccc
-  val uarch13 = 0xccd
-  val uarch14 = 0xcce
-  val uarch15 = 0xccf
-  val counth = 0x586
-  val cycleh = 0xc80
-  val timeh = 0xc81
-  val instreth = 0xc82
+  val fflags = 0x1         // FPU fcsr.fflags (accrued exceptions)  RISC-V ISA VI p38 
+  val frm = 0x2            // FPU fscr.frm (rounding mode)          RISC-V ISA VI p38
+  val fcsr = 0x3           // FPU fscr
+  val stats = 0xc0         //      
+  val sup0 = 0x500         // [privileged when R/W in User mode] pointer to the current executing task (asm/current.h)
+  val sup1 = 0x501         // [privileged when R/W in User mode] current stack pointer? (kernel/entry.S)
+  val epc = 0x502          // [privileged when R/W in User mode] Exception PC 
+  val badvaddr = 0x503     // [privileged when R/W in User mode] bad virtual address
+  val ptbr = 0x504         // [privileged when R/W in User mode] page table phy base address
+  val asid = 0x505         // [privileged when R/W in User mode] ???
+  val count = 0x506        // [privileged when R/W in User mode] cycle count for timer
+  val compare = 0x507      // [privileged when R/W in User mode] timer compare value
+  val evec = 0x508         // [privileged when R/W in User mode] exception handler address
+  val cause = 0x509        // [privileged when R/W in User mode] cause of exception
+  val status = 0x50a       // [privileged when R/W in User mode] status register, related to the Status class
+  val hartid = 0x50b       // [privileged when R/W in User mode] host id
+  val impl = 0x50c         // [privileged when R/W in User mode] ??? impl
+  val fatc = 0x50d         // [privileged when R/W in User mode] ??? impl
+  val send_ipi = 0x50e     // [privileged when R/W in User mode] ??? impl
+  val clear_ipi = 0x50f    // [privileged when R/W in User mode] ??? impl
+  val reset = 0x51d        // [privileged when R/W in User mode] reset the Status register
+  val tohost = 0x51e       // [privileged when R/W in User mode] test output register
+  val fromhost = 0x51f     // [privileged when R/W in User mode] test input register
+  val tagbr = 0x520        // [privileged when R/W in User mode] base address for tag memory partition
+  val cycle = 0xc00        // [privileged when W] time
+  val time = 0xc01         // [privileged when W] time
+  val instret = 0xc02      // [privileged when W]
+  val uarch0 = 0xcc0       // [privileged when W]
+  val uarch1 = 0xcc1       // [privileged when W]
+  val uarch2 = 0xcc2       // [privileged when W]
+  val uarch3 = 0xcc3       // [privileged when W]
+  val uarch4 = 0xcc4       // [privileged when W]
+  val uarch5 = 0xcc5       // [privileged when W]
+  val uarch6 = 0xcc6       // [privileged when W]
+  val uarch7 = 0xcc7       // [privileged when W]
+  val uarch8 = 0xcc8       // [privileged when W]
+  val uarch9 = 0xcc9       // [privileged when W]
+  val uarch10 = 0xcca      // [privileged when W]
+  val uarch11 = 0xccb      // [privileged when W]
+  val uarch12 = 0xccc      // [privileged when W]
+  val uarch13 = 0xccd      // [privileged when W]
+  val uarch14 = 0xcce      // [privileged when W]
+  val uarch15 = 0xccf      // [privileged when W]
+  val counth = 0x586       // [privileged when R/W in User mode] 
+  val cycleh = 0xc80       // [privileged when W]
+  val timeh = 0xc81        // [privileged when W]
+  val instreth = 0xc82     // [privileged when W]
   val all = {
     val res = collection.mutable.ArrayBuffer[Int]()
     res += fflags
@@ -291,6 +305,7 @@ object CSRs {
     res += reset
     res += tohost
     res += fromhost
+    res += tagbr
     res += cycle
     res += time
     res += instret
